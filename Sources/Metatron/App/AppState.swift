@@ -269,26 +269,21 @@ public final class AppState: ObservableObject {
                 if !cleanedText.isEmpty {
                     self.lastTranscribedText = cleanedText
 
-                    // Only copy to system clipboard if the user explicitly enabled auto-copy
-                    if self.autoCopyToClipboard {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(cleanedText, forType: .string)
-                    }
-
                     if self.autoInsertText {
                         let hasAccessibility = HotkeyManager.isAccessibilityGranted()
                         if hasAccessibility {
-                            TextInserter.shared.insertTextDirectly(cleanedText)
-                            self.statusMessage = self.autoCopyToClipboard ? "Pasted & Copied!" : "Inserted!"
+                            TextInserter.shared.insertText(cleanedText, keepOnClipboard: self.autoCopyToClipboard)
+                            self.statusMessage = self.autoCopyToClipboard ? "Inserted & Copied!" : "Inserted!"
                         } else {
-                            if self.autoCopyToClipboard {
-                                self.statusMessage = "Copied! (Grant Accessibility to auto-type)"
-                            } else {
-                                self.statusMessage = "Transcribed! (Grant Accessibility to auto-type)"
-                            }
+                            HotkeyManager.requestAccessibilityPermission()
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(cleanedText, forType: .string)
+                            self.statusMessage = "Copied! (Grant Accessibility to auto-insert)"
                         }
                     } else {
                         if self.autoCopyToClipboard {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(cleanedText, forType: .string)
                             self.statusMessage = "Copied to Clipboard!"
                         } else {
                             self.statusMessage = "Transcribed! (Click Copy in toolbar)"
