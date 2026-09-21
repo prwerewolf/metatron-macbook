@@ -36,6 +36,10 @@ public final class FloatingPillPanel: NSPanel {
     public static let horizontalSize = NSSize(width: 196, height: 42)
     public static let verticalSize = NSSize(width: 42, height: 140)
 
+    private var initialMouse: NSPoint = .zero
+    private var initialOrigin: NSPoint = .zero
+    private var isDraggingPill = false
+
     public init() {
         let isVert = AppState.shared.pillOrientation == .vertical
         let initSize = isVert ? FloatingPillPanel.verticalSize : FloatingPillPanel.horizontalSize
@@ -52,11 +56,12 @@ public final class FloatingPillPanel: NSPanel {
         self.backgroundColor = .clear
         self.hasShadow = false
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        self.isMovableByWindowBackground = false // We handle dragging manually with magnetic edge snapping
+        self.isMovableByWindowBackground = false // Handled directly in sendEvent for reliable edge snapping
         self.hidesOnDeactivate = false
 
         // Host the SwiftUI View
-        let hostingView = DraggableHostingView(rootView: FloatingPillView())
+        let hostingView = NSHostingView(rootView: FloatingPillView())
+        hostingView.autoresizingMask = [.width, .height]
         self.contentView = hostingView
 
         restoreSavedPosition()
@@ -68,6 +73,40 @@ public final class FloatingPillPanel: NSPanel {
 
     public override var canBecomeMain: Bool {
         return false
+    }
+
+    // MARK: - Direct Drag & Snap Event Handling
+
+    public override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            initialMouse = NSEvent.mouseLocation
+            initialOrigin = self.frame.origin
+            isDraggingPill = false
+            super.sendEvent(event)
+
+        case .leftMouseDragged:
+            let curMouse = NSEvent.mouseLocation
+            let dx = curMouse.x - initialMouse.x
+            let dy = curMouse.y - initialMouse.y
+            if abs(dx) > 3 || abs(dy) > 3 {
+                isDraggingPill = true
+                self.setFrameOrigin(NSPoint(x: initialOrigin.x + dx, y: initialOrigin.y + dy))
+            } else {
+                super.sendEvent(event)
+            }
+
+        case .leftMouseUp:
+            if isDraggingPill {
+                isDraggingPill = false
+                snapToNearestEdgeAndSave()
+            } else {
+                super.sendEvent(event)
+            }
+
+        default:
+            super.sendEvent(event)
+        }
     }
 
     // MARK: - Snapping & Positioning
@@ -248,30 +287,5 @@ public final class FloatingPillPanel: NSPanel {
 
     public func resetPositionToCenter() {
         snap(to: .bottomCenter)
-    }
-}
-
-/// Custom NSHostingView with drag-and-snap and click-to-record detection
-public final class DraggableHostingView<Content: View>: NSHostingView<Content> {
-    private var initialMouseLocation: NSPoint = .zero
-    private var isDragging = false
-
-    public override func mouseDown(with event: NSEvent) {
-        initialMouseLocation = NSEvent.mouseLocation
-        isDragging = false
-        window?.performDrag(with: event)
-
-        // If mouse moved more than 4 points, user dragged and dropped
-        let currentMouse = NSEvent.mouseLocation
-        let distance = hypot(currentMouse.x - initialMouseLocation.x, currentMouse.y - initialMouseLocation.y)
-
-        if distance > 4.0 {
-            if let panel = window as? FloatingPillPanel {
-                panel.snapToNearestEdgeAndSave()
-            }
-        } else {
-            // Short tap: toggle dictation recording
-            AppState.shared.toggleRecording()
-        }
     }
 }
