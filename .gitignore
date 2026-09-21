@@ -1,0 +1,9 @@
+.build/
+.venv/
+Metatron.app/
+*.o
+*.dylib
+*.log
+*.wav
+.DS_Store
+Resources/AppIcon.iconset/
