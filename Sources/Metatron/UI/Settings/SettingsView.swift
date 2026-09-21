@@ -216,6 +216,23 @@ struct PrivacySettingsTab: View {
     var body: some View {
         Form {
             Section {
+                Toggle("Auto-Copy Dictation to Clipboard", isOn: $appState.autoCopyToClipboard)
+                Text("When disabled, transcribed speech is never placed on your macOS clipboard. You can still copy anytime via the top toolbar or floating pill.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Toggle("Auto-Insert Text at Cursor", isOn: $appState.autoInsertText)
+                Text("Directly types text into your active application via Accessibility/keystrokes without touching the clipboard.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Clipboard & Typing Privacy")
+                    .fontWeight(.semibold)
+            }
+
+            Divider()
+
+            Section {
                 Picker("History Retention", selection: $appState.historyRetention) {
                     ForEach(HistoryRetention.allCases) { policy in
                         Text(policy.rawValue).tag(policy)

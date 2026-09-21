@@ -45,6 +45,19 @@ public final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Privacy & Clipboard Controls
+    @Published public var autoCopyToClipboard: Bool = false {
+        didSet {
+            UserDefaults.standard.set(autoCopyToClipboard, forKey: "metatron_auto_copy")
+        }
+    }
+
+    @Published public var autoInsertText: Bool = true {
+        didSet {
+            UserDefaults.standard.set(autoInsertText, forKey: "metatron_auto_insert")
+        }
+    }
+
     // MARK: - Settings
     @Published public var hotkeyChoice: HotkeyChoice = .fnHold {
         didSet {
@@ -113,6 +126,18 @@ public final class AppState: ObservableObject {
         if let rawRetention = UserDefaults.standard.string(forKey: "metatron_retention"),
            let retention = HistoryRetention(rawValue: rawRetention) {
             self.historyRetention = retention
+        }
+
+        if UserDefaults.standard.object(forKey: "metatron_auto_copy") != nil {
+            self.autoCopyToClipboard = UserDefaults.standard.bool(forKey: "metatron_auto_copy")
+        } else {
+            self.autoCopyToClipboard = false // Default to false for privacy
+        }
+
+        if UserDefaults.standard.object(forKey: "metatron_auto_insert") != nil {
+            self.autoInsertText = UserDefaults.standard.bool(forKey: "metatron_auto_insert")
+        } else {
+            self.autoInsertText = true
         }
 
         if let rawHotkey = UserDefaults.standard.string(forKey: "metatron_hotkey"),
@@ -244,17 +269,30 @@ public final class AppState: ObservableObject {
                 if !cleanedText.isEmpty {
                     self.lastTranscribedText = cleanedText
 
-                    // Always copy text to clipboard so the user never loses it
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(cleanedText, forType: .string)
+                    // Only copy to system clipboard if the user explicitly enabled auto-copy
+                    if self.autoCopyToClipboard {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(cleanedText, forType: .string)
+                    }
 
-                    // Check if Accessibility permission is granted to synthesize Cmd+V
-                    let hasAccessibility = HotkeyManager.isAccessibilityGranted()
-                    if hasAccessibility {
-                        TextInserter.shared.sendPasteKeystroke()
-                        self.statusMessage = "Pasted!"
+                    if self.autoInsertText {
+                        let hasAccessibility = HotkeyManager.isAccessibilityGranted()
+                        if hasAccessibility {
+                            TextInserter.shared.insertTextDirectly(cleanedText)
+                            self.statusMessage = self.autoCopyToClipboard ? "Pasted & Copied!" : "Inserted!"
+                        } else {
+                            if self.autoCopyToClipboard {
+                                self.statusMessage = "Copied! (Grant Accessibility to auto-type)"
+                            } else {
+                                self.statusMessage = "Transcribed! (Grant Accessibility to auto-type)"
+                            }
+                        }
                     } else {
-                        self.statusMessage = "Copied! (Grant Accessibility to auto-paste)"
+                        if self.autoCopyToClipboard {
+                            self.statusMessage = "Copied to Clipboard!"
+                        } else {
+                            self.statusMessage = "Transcribed! (Click Copy in toolbar)"
+                        }
                     }
 
                     // Visual and audio feedback
@@ -330,6 +368,16 @@ public final class AppState: ObservableObject {
         guard !lastTranscribedText.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastTranscribedText, forType: .string)
+        self.statusMessage = "Copied to Clipboard!"
+        self.showSuccess = true
         SoundEffects.shared.playSuccess()
+
+        Task {
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            if self.statusMessage == "Copied to Clipboard!" {
+                self.showSuccess = false
+                self.statusMessage = "Ready"
+            }
+        }
     }
 }

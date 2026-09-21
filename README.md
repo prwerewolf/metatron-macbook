@@ -11,8 +11,8 @@
 - **Floating Pill UI**: A sleek, liquid-glass draggable capsule that lives on your screen. Drag it to the left, right, top, or bottom. It remembers its exact coordinates across restarts and **never** steals focus from active windows.
 - **Real-Time Soundwave**: Dynamic, spring-animated audio bars that dance with your voice in real time as you speak.
 - **"Um" & "Ah" Removal**: Intelligent multi-stage cleaning pipeline that eliminates filler speech (*um, uh, ah, er, like, you know*), stutters (*I-I, the-the*), and false starts.
-- **Spoken Punctuation & Formatting**: Speaks naturally; words like *"period"*, *"comma"*, *"question mark"*, *"new line"*, and *"bullet one ... bullet two"* become clean symbols and formatted lists.
-- **Instant Clipboard Paste**: Injects text via synthetic `Cmd+V` while automatically backing up and restoring your clipboard history.
+- **Private Direct Text Insertion**: Injects text directly at the cursor via macOS Accessibility/keystrokes without touching your clipboard, preventing clipboard monitors, history utilities (Raycast, Maccy), and iCloud Universal Clipboard from capturing your speech.
+- **On-Demand Clipboard Copy**: Explicitly copy your last transcription to your clipboard at any time via the menu bar toolbar up top or the floating pill.
 - **100% Local & Private (Apple Silicon Metal GPU)**: Powered by `mlx-whisper` running locally on your Apple M4 Max GPU and Neural Engine. Audio is processed strictly in RAM and immediately deleted upon transcription.
 - **Incognito Ephemeral Storage by Default**: Audio and transcripts are never stored on disk forever.
 - **Dictation History & Search**: Optional rolling session history with word counts, search, and one-click copy.
