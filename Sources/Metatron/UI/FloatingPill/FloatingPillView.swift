@@ -17,7 +17,6 @@ public struct FloatingPillView: View {
             }
         }
         .background(pillBackground)
-        .shadow(color: Color.black.opacity(0.35), radius: 8, x: 0, y: 3)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering
@@ -25,45 +24,45 @@ public struct FloatingPillView: View {
         }
     }
 
-    // MARK: - App Icon Component (replaces former circle orb)
+    // MARK: - App Icon Component
 
     private var appIconView: some View {
         ZStack {
-            // App Icon
+            // App Icon (Contender 1 Studio Mic)
             if let icon = loadAppIcon() {
                 Image(nsImage: icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 22, height: 22)
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .frame(width: 19, height: 19)
+                    .clipShape(RoundedRectangle(cornerRadius: 4.5, style: .continuous))
             } else {
                 Image(systemName: "mic.fill")
-                    .font(.system(size: 14))
+                    .font(.system(size: 13))
                     .foregroundColor(.orange)
             }
 
             // Pulsing active recording indicator ring around icon
             if appState.isRecording {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.red, lineWidth: 2)
-                    .frame(width: 26, height: 26)
-                    .scaleEffect(appState.currentAudioLevel > 0.08 ? 1.15 : 1.0)
+                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
+                    .stroke(Color.red, lineWidth: 1.8)
+                    .frame(width: 23, height: 23)
+                    .scaleEffect(appState.currentAudioLevel > 0.08 ? 1.12 : 1.0)
                     .animation(.easeInOut(duration: 0.15), value: appState.currentAudioLevel)
             } else if appState.isProcessing {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: 5.5, style: .continuous)
                     .stroke(
                         LinearGradient(colors: [.orange, .yellow], startPoint: .topLeading, endPoint: .bottomTrailing),
-                        lineWidth: 1.8
+                        lineWidth: 1.6
                     )
-                    .frame(width: 26, height: 26)
+                    .frame(width: 23, height: 23)
                     .rotationEffect(Angle(degrees: isShimmering ? 360 : 0))
                     .animation(.linear(duration: 1.0).repeatForever(autoreverses: false), value: isShimmering)
                     .onAppear { isShimmering = true }
             } else if appState.showSuccess {
                 Circle()
                     .fill(Color.green)
-                    .frame(width: 6, height: 6)
-                    .offset(x: 9, y: -9)
+                    .frame(width: 5, height: 5)
+                    .offset(x: 8, y: -8)
             }
         }
     }
@@ -71,38 +70,38 @@ public struct FloatingPillView: View {
     // MARK: - Horizontal Pill (Top / Bottom edges)
 
     private var horizontalPillContent: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // 1. App Icon
             appIconView
 
-            // 2. State content (NO "Hold Fn")
+            // 2. State content — NO "Hold Fn", NO dots
             if appState.isRecording {
-                WaveformView(audioLevel: appState.currentAudioLevel)
-                Text("Listening...")
-                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                WaveformView(audioLevel: appState.currentAudioLevel, barCount: 4)
+                Text("Listening")
+                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
                     .foregroundColor(.white)
             } else if appState.isProcessing {
-                Text("Transcribing...")
-                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                Text("Transcribing")
+                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
                     .foregroundColor(.white.opacity(0.9))
             } else if appState.showSuccess {
-                Text(appState.lastTranscribedText.isEmpty ? appState.statusMessage : appState.lastTranscribedText)
-                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundColor(.green)
-                    .lineLimit(1)
-                    .frame(maxWidth: 180)
-                    .truncationMode(.tail)
+                Text("Done")
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .foregroundColor(.green)
             } else if appState.statusMessage != "Ready" {
                 Text(appState.statusMessage)
-                    .font(.system(size: 11.0, weight: .medium, design: .rounded))
+                    .font(.system(size: 10.0, weight: .medium, design: .rounded))
                     .foregroundColor(appState.statusMessage.contains("Error") || appState.statusMessage.contains("failed") ? .orange : .cyan)
                     .lineLimit(1)
-                    .frame(maxWidth: 180)
+                    .frame(maxWidth: 55)
                     .truncationMode(.tail)
             } else {
-                // Clean Idle title — NO "Hold Fn"
+                // Sleek Idle text — NO dots, NO "Hold Fn"
                 Text("Metatron")
-                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                    .font(.system(size: 11.0, weight: .medium, design: .rounded))
                     .foregroundColor(.white.opacity(0.85))
             }
 
@@ -112,44 +111,32 @@ public struct FloatingPillView: View {
                     appState.copyLastDictation()
                 } label: {
                     Image(systemName: "doc.on.doc.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: 8.5))
                         .foregroundColor(.cyan)
                 }
                 .buttonStyle(.plain)
                 .help("Copy last transcription")
             }
-
-            // 4. Drag Gripper dots
-            HStack(spacing: 2) {
-                ForEach(0..<2, id: \.self) { _ in
-                    VStack(spacing: 2) {
-                        Circle().fill(Color.white.opacity(isHovering ? 0.4 : 0.2)).frame(width: 2.5, height: 2.5)
-                        Circle().fill(Color.white.opacity(isHovering ? 0.4 : 0.2)).frame(width: 2.5, height: 2.5)
-                        Circle().fill(Color.white.opacity(isHovering ? 0.4 : 0.2)).frame(width: 2.5, height: 2.5)
-                    }
-                }
-            }
-            .padding(.leading, 2)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Vertical Pill (Left / Right edges — "a pill that's down not sideways")
 
     private var verticalPillContent: some View {
-        VStack(spacing: 8) {
-            // Top: App Icon
+        VStack(spacing: 3) {
+            // App Icon
             appIconView
-                .padding(.top, 4)
 
-            // Middle: Vertical Visualizer / Status
+            // Middle: Vertical Visualizer / Status (only when active)
             if appState.isRecording {
-                VStack(spacing: 2.5) {
-                    ForEach(0..<4, id: \.self) { i in
-                        let multiplier: CGFloat = [0.5, 1.0, 0.75, 0.4][i]
-                        let baseW: CGFloat = 6.0
-                        let maxW: CGFloat = 22.0
+                VStack(spacing: 1.5) {
+                    ForEach(0..<3, id: \.self) { i in
+                        let multiplier: CGFloat = [0.6, 1.0, 0.7][i]
+                        let baseW: CGFloat = 4.0
+                        let maxW: CGFloat = 16.0
                         let w = baseW + (CGFloat(appState.currentAudioLevel) * (maxW - baseW) * multiplier)
                         Capsule()
                             .fill(
@@ -159,55 +146,38 @@ public struct FloatingPillView: View {
                                     endPoint: .trailing
                                 )
                             )
-                            .frame(width: max(baseW, min(maxW, w)), height: 2.5)
+                            .frame(width: max(baseW, min(maxW, w)), height: 2.0)
                             .animation(.spring(response: 0.15, dampingFraction: 0.6), value: appState.currentAudioLevel)
                     }
                 }
-                .frame(height: 22)
+                .frame(height: 10)
             } else if appState.isProcessing {
                 Circle()
                     .trim(from: 0, to: 0.7)
-                    .stroke(LinearGradient(colors: [.orange, .yellow], startPoint: .top, endPoint: .bottom), lineWidth: 2)
-                    .frame(width: 14, height: 14)
+                    .stroke(LinearGradient(colors: [.orange, .yellow], startPoint: .top, endPoint: .bottom), lineWidth: 1.5)
+                    .frame(width: 10, height: 10)
                     .rotationEffect(Angle(degrees: isShimmering ? 360 : 0))
                     .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: isShimmering)
             } else if appState.showSuccess {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundColor(.green)
-            } else {
-                // Idle: Minimal vertical dots
-                VStack(spacing: 3) {
-                    Circle().fill(Color.white.opacity(0.3)).frame(width: 2.5, height: 2.5)
-                    Circle().fill(Color.white.opacity(0.3)).frame(width: 2.5, height: 2.5)
-                    Circle().fill(Color.white.opacity(0.3)).frame(width: 2.5, height: 2.5)
-                }
-            }
-
-            Spacer(minLength: 4)
-
-            // Bottom: Copy button on hover or drag grip
-            if isHovering && !appState.lastTranscribedText.isEmpty && !appState.isRecording && !appState.isProcessing {
+            } else if isHovering && !appState.lastTranscribedText.isEmpty {
                 Button {
                     appState.copyLastDictation()
                 } label: {
                     Image(systemName: "doc.on.doc.fill")
-                        .font(.system(size: 10))
+                        .font(.system(size: 8.5))
                         .foregroundColor(.cyan)
                 }
                 .buttonStyle(.plain)
                 .help("Copy last transcription")
-            } else {
-                HStack(spacing: 2) {
-                    ForEach(0..<2, id: \.self) { _ in
-                        Circle().fill(Color.white.opacity(isHovering ? 0.4 : 0.2)).frame(width: 2.5, height: 2.5)
-                    }
-                }
-                .padding(.bottom, 4)
             }
+            // In Idle: NOTHING else! ZERO dots! Clean icon only!
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Glass Background
@@ -218,7 +188,7 @@ public struct FloatingPillView: View {
                 .fill(.ultraThinMaterial)
                 .background(
                     Capsule()
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.6))
                 )
 
             Capsule()

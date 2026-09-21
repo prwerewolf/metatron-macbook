@@ -33,8 +33,9 @@ public final class FloatingPillPanel: NSPanel {
     private let userDefaultsKeyY = "metatron_pill_y"
     private let userDefaultsKeySnap = "metatron_pill_snap"
 
-    public static let horizontalSize = NSSize(width: 196, height: 42)
-    public static let verticalSize = NSSize(width: 42, height: 140)
+    // Ultra-compact, sleek dimensions — minimal footprint, zero dots
+    public static let horizontalSize = NSSize(width: 106, height: 30)
+    public static let verticalSize = NSSize(width: 30, height: 44)
 
     private var initialMouse: NSPoint = .zero
     private var initialOrigin: NSPoint = .zero
@@ -54,12 +55,11 @@ public final class FloatingPillPanel: NSPanel {
         self.level = .floating
         self.isOpaque = false
         self.backgroundColor = .clear
-        self.hasShadow = false
+        self.hasShadow = true
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        self.isMovableByWindowBackground = false // Handled directly in sendEvent for reliable edge snapping
+        self.isMovableByWindowBackground = false
         self.hidesOnDeactivate = false
 
-        // Host the SwiftUI View
         let hostingView = NSHostingView(rootView: FloatingPillView())
         hostingView.autoresizingMask = [.width, .height]
         self.contentView = hostingView
@@ -115,7 +115,7 @@ public final class FloatingPillPanel: NSPanel {
         guard let screen = self.screen ?? NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
         let curFrame = self.frame
-        let margin: CGFloat = 14
+        let margin: CGFloat = 12
 
         let centerX = curFrame.midX
         let centerY = curFrame.midY
@@ -133,7 +133,7 @@ public final class FloatingPillPanel: NSPanel {
         var snapTarget: PillSnapTarget
 
         if minDist == distLeft {
-            // Snap to Left Edge -> Vertical Pill
+            // Snap to Left Edge -> Vertical Pill ("down not sideways")
             newOrientation = .vertical
             targetSize = FloatingPillPanel.verticalSize
             let x = screenFrame.minX + margin
@@ -148,7 +148,7 @@ public final class FloatingPillPanel: NSPanel {
                 targetOrigin = NSPoint(x: x, y: screenFrame.midY - targetSize.height / 2)
             }
         } else if minDist == distRight {
-            // Snap to Right Edge -> Vertical Pill
+            // Snap to Right Edge -> Vertical Pill ("down not sideways")
             newOrientation = .vertical
             targetSize = FloatingPillPanel.verticalSize
             let x = screenFrame.maxX - targetSize.width - margin
@@ -200,7 +200,7 @@ public final class FloatingPillPanel: NSPanel {
     public func snap(to target: PillSnapTarget) {
         guard let screen = self.screen ?? NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
-        let margin: CGFloat = 14
+        let margin: CGFloat = 12
 
         let targetSize = target.isVertical ? FloatingPillPanel.verticalSize : FloatingPillPanel.horizontalSize
         var targetOrigin: NSPoint
@@ -239,6 +239,8 @@ public final class FloatingPillPanel: NSPanel {
     private func applySnap(target: PillSnapTarget, origin: NSPoint, size: NSSize, orientation: PillOrientation) {
         AppState.shared.pillOrientation = orientation
         UserDefaults.standard.set(target.rawValue, forKey: userDefaultsKeySnap)
+        UserDefaults.standard.set(Double(origin.x), forKey: userDefaultsKeyX)
+        UserDefaults.standard.set(Double(origin.y), forKey: userDefaultsKeyY)
 
         let targetFrame = NSRect(origin: origin, size: size)
 
@@ -247,19 +249,18 @@ public final class FloatingPillPanel: NSPanel {
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             self.animator().setFrame(targetFrame, display: true)
         }
-
-        saveCurrentPosition()
+        self.invalidateShadow()
     }
 
     private func restoreSavedPosition() {
-        guard let screen = NSScreen.main else { return }
-        let screenFrame = screen.visibleFrame
-
         if let savedSnapRaw = UserDefaults.standard.string(forKey: userDefaultsKeySnap),
            let snapTarget = PillSnapTarget(rawValue: savedSnapRaw) {
             snap(to: snapTarget)
             return
         }
+
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
 
         if UserDefaults.standard.object(forKey: userDefaultsKeyX) != nil,
            UserDefaults.standard.object(forKey: userDefaultsKeyY) != nil {
@@ -274,7 +275,6 @@ public final class FloatingPillPanel: NSPanel {
             self.setFrame(NSRect(origin: NSPoint(x: clampedX, y: clampedY), size: size), display: true)
             snapToNearestEdgeAndSave()
         } else {
-            // Default position: bottom center of main screen
             snap(to: .bottomCenter)
         }
     }
