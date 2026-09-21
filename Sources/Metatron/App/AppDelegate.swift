@@ -188,9 +188,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         permissionsItem.target = self
         menu.addItem(permissionsItem)
 
-        let centerPillItem = NSMenuItem(title: "Center Floating Pill", action: #selector(centerPill), keyEquivalent: "")
-        centerPillItem.target = self
-        menu.addItem(centerPillItem)
+        // Snap Floating Pill Submenu
+        let snapMenuItem = NSMenuItem(title: "Snap Floating Pill", action: nil, keyEquivalent: "")
+        let snapSubmenu = NSMenu()
+        let snapTargets: [(String, PillSnapTarget)] = [
+            ("Bottom Center", .bottomCenter),
+            ("Bottom Left", .bottomLeft),
+            ("Bottom Right", .bottomRight),
+            ("Left Edge (Vertical)", .leftCenter),
+            ("Right Edge (Vertical)", .rightCenter),
+            ("Top Center", .topCenter),
+            ("Top Left", .topLeft),
+            ("Top Right", .topRight)
+        ]
+        for (title, target) in snapTargets {
+            let item = NSMenuItem(title: title, action: #selector(snapPillToTarget(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = target
+            snapSubmenu.addItem(item)
+        }
+        snapMenuItem.submenu = snapSubmenu
+        menu.addItem(snapMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -287,6 +305,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
 
     @objc private func centerPill() {
         pillPanel?.resetPositionToCenter()
+    }
+
+    @objc private func snapPillToTarget(_ sender: NSMenuItem) {
+        if let target = sender.representedObject as? PillSnapTarget {
+            pillPanel?.snap(to: target)
+        }
     }
 
     @objc private func quitApp() {

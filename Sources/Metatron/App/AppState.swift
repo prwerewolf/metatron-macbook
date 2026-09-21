@@ -24,6 +24,13 @@ public enum HistoryRetention: String, CaseIterable, Identifiable, Codable {
     public var id: String { rawValue }
 }
 
+public enum PillOrientation: String, CaseIterable, Identifiable, Codable {
+    case horizontal
+    case vertical
+
+    public var id: String { rawValue }
+}
+
 @MainActor
 public final class AppState: ObservableObject {
     public static let shared = AppState()
@@ -55,6 +62,13 @@ public final class AppState: ObservableObject {
     @Published public var autoInsertText: Bool = true {
         didSet {
             UserDefaults.standard.set(autoInsertText, forKey: "metatron_auto_insert")
+        }
+    }
+
+    // MARK: - Floating Pill State
+    @Published public var pillOrientation: PillOrientation = .horizontal {
+        didSet {
+            UserDefaults.standard.set(pillOrientation.rawValue, forKey: "metatron_pill_orientation")
         }
     }
 
@@ -138,6 +152,11 @@ public final class AppState: ObservableObject {
             self.autoInsertText = UserDefaults.standard.bool(forKey: "metatron_auto_insert")
         } else {
             self.autoInsertText = true
+        }
+
+        if let rawOrientation = UserDefaults.standard.string(forKey: "metatron_pill_orientation"),
+           let orientation = PillOrientation(rawValue: rawOrientation) {
+            self.pillOrientation = orientation
         }
 
         if let rawHotkey = UserDefaults.standard.string(forKey: "metatron_hotkey"),
