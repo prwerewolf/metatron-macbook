@@ -1,9 +1,14 @@
 import SwiftUI
 import AppKit
+import Combine
 
 public struct PermissionsView: View {
     @State private var hasMic: Bool = AudioRecorder.shared.hasPermission
     @State private var hasAccessibility: Bool = HotkeyManager.isAccessibilityGranted()
+    @State private var allGrantedNotice: Bool = false
+    @State private var statusInfo: String = ""
+
+    private let timer = Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()
 
     public init() {}
 
@@ -22,6 +27,26 @@ public struct PermissionsView: View {
                 }
             }
 
+            if hasMic && hasAccessibility {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("All Permissions Active!")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.green)
+                        Text("Metatron is fully configured and ready. Hold Fn and speak anytime.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.green.opacity(0.12))
+                .cornerRadius(8)
+            }
+
             Divider()
 
             // 1. Microphone Permission
@@ -33,7 +58,7 @@ public struct PermissionsView: View {
                         Text("Microphone Access")
                             .fontWeight(.medium)
                     }
-                    Text("Needed to record your voice when holding the hotkey. Audio is processed 100% locally in RAM and immediately purged.")
+                    Text("Needed to record your voice when holding the hotkey. Audio is processed on this Mac; temporary recordings are deleted after processing or cancellation.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -78,21 +103,13 @@ public struct PermissionsView: View {
                         .font(.caption)
                         .foregroundColor(.green)
                 } else {
-                    HStack(spacing: 8) {
-                        Button("Reveal in Finder") {
-                            let appURL = URL(fileURLWithPath: Bundle.main.bundlePath)
-                            NSWorkspace.shared.activateFileViewerSelecting([appURL])
+                    Button("Open Settings") {
+                        HotkeyManager.requestAccessibilityPermission()
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                            NSWorkspace.shared.open(url)
                         }
-                        .buttonStyle(.bordered)
-
-                        Button("Open Settings") {
-                            HotkeyManager.requestAccessibilityPermission()
-                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
                     }
+                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding(10)
@@ -124,35 +141,89 @@ public struct PermissionsView: View {
             .background(Color.yellow.opacity(0.1))
             .cornerRadius(8)
 
-            HStack(spacing: 12) {
-                Text("Note: macOS requires restarting the app after enabling Accessibility.")
-                    .font(.caption2)
+            if !statusInfo.isEmpty {
+                Text(statusInfo)
+                    .font(.caption)
                     .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Button("Auto-Fix / Reset Permissions") {
+                    let task = Process()
+                    task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                    task.arguments = ["reset", "Accessibility", "com.SampleUser.metatron"]
+                    try? task.run()
+                    task.waitUntilExit()
+
+                    HotkeyManager.requestAccessibilityPermission()
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                        NSWorkspace.shared.open(url)
+                    }
+                    statusInfo = "Reset macOS permission cache. Toggle Metatron in System Settings."
+                }
+                .buttonStyle(.bordered)
+                .help("Clears old build signatures from macOS Privacy cache if System Settings gets stuck")
 
                 Spacer()
 
-                Button("Refresh") {
-                    hasMic = AudioRecorder.shared.hasPermission
-                    hasAccessibility = HotkeyManager.isAccessibilityGranted()
+                if hasMic && hasAccessibility {
+                    Button("Close") {
+                        closeWindow()
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Restart App") {
+                        let appPath = Bundle.main.bundlePath
+                        let task = Process()
+                        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                        task.arguments = ["-n", appPath]
+                        try? task.run()
+                        NSApp.terminate(nil)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
-
-                Button("Restart App") {
-                    let appPath = Bundle.main.bundlePath
-                    let task = Process()
-                    task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                    task.arguments = ["-n", appPath]
-                    try? task.run()
-                    NSApp.terminate(nil)
-                }
-                .buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
-        .frame(width: 500)
+        .frame(width: 520)
         .onAppear {
-            hasMic = AudioRecorder.shared.hasPermission
-            hasAccessibility = HotkeyManager.isAccessibilityGranted()
+            checkPermissions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            checkPermissions()
+        }
+        .onReceive(timer) { _ in
+            checkPermissions()
+        }
+    }
+
+    private func checkPermissions() {
+        let mic = AudioRecorder.shared.hasPermission
+        let ax = HotkeyManager.isAccessibilityGranted()
+        if mic != hasMic { hasMic = mic }
+        if ax != hasAccessibility {
+            hasAccessibility = ax
+            if ax {
+                HotkeyManager.shared.startListening()
+            }
+        }
+
+        if hasMic && hasAccessibility && !allGrantedNotice {
+            allGrantedNotice = true
+            // Auto close after 1.5s once both permissions are satisfied
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                if hasMic && hasAccessibility {
+                    closeWindow()
+                }
+            }
+        }
+    }
+
+    private func closeWindow() {
+        for window in NSApp.windows {
+            if window.title.contains("Permissions") {
+                window.close()
+            }
         }
     }
 }

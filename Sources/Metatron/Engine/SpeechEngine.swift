@@ -1,13 +1,23 @@
 import Foundation
 
-public enum SpeechEngineType: String, CaseIterable, Identifiable, Codable {
-    case localMLX = "Apple M4 Max Local (100% Offline, GPU Metal)"
-    case groq = "Groq Cloud (Lightning Fast API)"
-    case openAI = "OpenAI Cloud (Whisper API)"
+public struct LocalEngineStatus: Equatable, Sendable {
+    public enum Phase: Equatable, Sendable {
+        case loading
+        case ready
+        case unavailable
+    }
 
-    public var id: String { rawValue }
+    public let phase: Phase
+    public let message: String
+    public let model: String?
+
+    public init(phase: Phase = .loading, message: String = "Loading the local speech model…", model: String? = nil) {
+        self.phase = phase
+        self.message = message
+        self.model = model
+    }
 }
 
 public protocol SpeechEngineProtocol {
-    func transcribe(audioFileURL: URL) async throws -> String
+    func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle) async throws -> String
 }

@@ -32,6 +32,7 @@ public final class FloatingPillPanel: NSPanel {
     private let userDefaultsKeyX = "metatron_pill_x"
     private let userDefaultsKeyY = "metatron_pill_y"
     private let userDefaultsKeySnap = "metatron_pill_snap"
+    private let userDefaultsKeyDisplay = "metatron_pill_display"
 
     // Ultra-compact, sleek dimensions — minimal footprint, zero dots
     public static let horizontalSize = NSSize(width: 106, height: 30)
@@ -194,11 +195,15 @@ public final class FloatingPillPanel: NSPanel {
             }
         }
 
-        applySnap(target: snapTarget, origin: targetOrigin, size: targetSize, orientation: newOrientation)
+        applySnap(target: snapTarget, origin: targetOrigin, size: targetSize, orientation: newOrientation, screen: screen)
     }
 
     public func snap(to target: PillSnapTarget) {
         guard let screen = self.screen ?? NSScreen.main else { return }
+        snap(to: target, on: screen)
+    }
+
+    private func snap(to target: PillSnapTarget, on screen: NSScreen) {
         let screenFrame = screen.visibleFrame
         let margin: CGFloat = 12
 
@@ -233,14 +238,15 @@ public final class FloatingPillPanel: NSPanel {
         }
 
         let orientation: PillOrientation = target.isVertical ? .vertical : .horizontal
-        applySnap(target: target, origin: targetOrigin, size: targetSize, orientation: orientation)
+        applySnap(target: target, origin: targetOrigin, size: targetSize, orientation: orientation, screen: screen)
     }
 
-    private func applySnap(target: PillSnapTarget, origin: NSPoint, size: NSSize, orientation: PillOrientation) {
+    private func applySnap(target: PillSnapTarget, origin: NSPoint, size: NSSize, orientation: PillOrientation, screen: NSScreen) {
         AppState.shared.pillOrientation = orientation
         UserDefaults.standard.set(target.rawValue, forKey: userDefaultsKeySnap)
         UserDefaults.standard.set(Double(origin.x), forKey: userDefaultsKeyX)
         UserDefaults.standard.set(Double(origin.y), forKey: userDefaultsKeyY)
+        UserDefaults.standard.set(displayIdentifier(for: screen), forKey: userDefaultsKeyDisplay)
 
         let targetFrame = NSRect(origin: origin, size: size)
 
@@ -253,36 +259,65 @@ public final class FloatingPillPanel: NSPanel {
     }
 
     private func restoreSavedPosition() {
+        let defaults = UserDefaults.standard
+        let savedOrigin: NSPoint?
+        if defaults.object(forKey: userDefaultsKeyX) != nil,
+           defaults.object(forKey: userDefaultsKeyY) != nil {
+            let x = defaults.double(forKey: userDefaultsKeyX)
+            let y = defaults.double(forKey: userDefaultsKeyY)
+            savedOrigin = x.isFinite && y.isFinite ? NSPoint(x: x, y: y) : nil
+        } else {
+            savedOrigin = nil
+        }
+
+        let screens = NSScreen.screens
+        let fallbackIndex = screens.firstIndex(where: { $0 == NSScreen.main }) ?? 0
+        let displays = screens.map { PillDisplay(identifier: displayIdentifier(for: $0), frame: $0.frame) }
+        guard let screenIndex = PillDisplayRestoration.screenIndex(
+            savedIdentifier: defaults.string(forKey: userDefaultsKeyDisplay),
+            savedOrigin: savedOrigin,
+            displays: displays,
+            fallbackIndex: fallbackIndex
+        ) else { return }
+        let screen = screens[screenIndex]
+
         if let savedSnapRaw = UserDefaults.standard.string(forKey: userDefaultsKeySnap),
            let snapTarget = PillSnapTarget(rawValue: savedSnapRaw) {
-            snap(to: snapTarget)
+            snap(to: snapTarget, on: screen)
             return
         }
 
-        guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
 
-        if UserDefaults.standard.object(forKey: userDefaultsKeyX) != nil,
-           UserDefaults.standard.object(forKey: userDefaultsKeyY) != nil {
-            let savedX = UserDefaults.standard.double(forKey: userDefaultsKeyX)
-            let savedY = UserDefaults.standard.double(forKey: userDefaultsKeyY)
+        if let savedOrigin {
             let isVert = AppState.shared.pillOrientation == .vertical
             let size = isVert ? FloatingPillPanel.verticalSize : FloatingPillPanel.horizontalSize
 
-            let clampedX = max(screenFrame.minX + 10, min(screenFrame.maxX - size.width - 10, CGFloat(savedX)))
-            let clampedY = max(screenFrame.minY + 10, min(screenFrame.maxY - size.height - 10, CGFloat(savedY)))
+            let clampedX = max(screenFrame.minX + 10, min(screenFrame.maxX - size.width - 10, savedOrigin.x))
+            let clampedY = max(screenFrame.minY + 10, min(screenFrame.maxY - size.height - 10, savedOrigin.y))
 
             self.setFrame(NSRect(origin: NSPoint(x: clampedX, y: clampedY), size: size), display: true)
             snapToNearestEdgeAndSave()
         } else {
-            snap(to: .bottomCenter)
+            snap(to: .bottomCenter, on: screen)
         }
+    }
+
+    private func displayIdentifier(for screen: NSScreen) -> String? {
+        guard let displayNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
+              let uuid = CGDisplayCreateUUIDFromDisplayID(displayNumber.uint32Value)?.takeRetainedValue() else {
+            return nil
+        }
+        return CFUUIDCreateString(nil, uuid) as String
     }
 
     public func saveCurrentPosition() {
         let origin = self.frame.origin
         UserDefaults.standard.set(Double(origin.x), forKey: userDefaultsKeyX)
         UserDefaults.standard.set(Double(origin.y), forKey: userDefaultsKeyY)
+        if let screen = self.screen {
+            UserDefaults.standard.set(displayIdentifier(for: screen), forKey: userDefaultsKeyDisplay)
+        }
     }
 
     public func resetPositionToCenter() {

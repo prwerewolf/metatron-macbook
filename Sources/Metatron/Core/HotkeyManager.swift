@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import IOKit.hidsystem
 
 public enum HotkeyChoice: String, CaseIterable, Identifiable, Codable {
     case fnHold = "Function (Fn / Globe) Key [Hold]"
@@ -24,6 +25,7 @@ public final class HotkeyManager {
     public var onHotkeyDown: (() -> Void)?
     public var onHotkeyUp: (() -> Void)?
     public var onToggle: (() -> Void)?
+    public var onCancel: (() -> Void)?
 
     private var globalFlagsMonitor: Any?
     private var localFlagsMonitor: Any?
@@ -92,7 +94,7 @@ public final class HotkeyManager {
         }
     }
 
-    private func handleFlagsChanged(event: NSEvent) {
+    func handleFlagsChanged(event: NSEvent) {
         let flags = event.modifierFlags
         let keyCode = event.keyCode
 
@@ -132,7 +134,8 @@ public final class HotkeyManager {
 
         // Right Option key (keyCode 61)
         if keyCode == 61 && activeHotkey == .rightOption {
-            let optPressed = flags.contains(.option)
+            // The aggregate Option flag stays set if the left key is still held.
+            let optPressed = flags.rawValue & UInt(NX_DEVICERALTKEYMASK) != 0
             if optPressed && !isRightOptionDown {
                 isRightOptionDown = true
                 if activeMode == .pushToTalk {
@@ -150,7 +153,7 @@ public final class HotkeyManager {
 
         // Right Command key (keyCode 54)
         if keyCode == 54 && activeHotkey == .rightCommand {
-            let cmdPressed = flags.contains(.command)
+            let cmdPressed = flags.rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0
             if cmdPressed && !isRightCommandDown {
                 isRightCommandDown = true
                 if activeMode == .pushToTalk {
@@ -167,7 +170,16 @@ public final class HotkeyManager {
         }
     }
 
-    private func handleKeyDown(event: NSEvent) {
+    func handleKeyDown(event: NSEvent) {
+        guard !event.isARepeat else { return }
+
+        // Observe Escape for every hotkey configuration. The local monitor still
+        // returns the original event, so other applications keep their Escape action.
+        if event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+
         // Control + Space (keyCode 49 is Space)
         if activeHotkey == .controlSpace && event.keyCode == 49 && event.modifierFlags.contains(.control) {
             onToggle?()

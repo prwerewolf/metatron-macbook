@@ -17,6 +17,7 @@ public struct FloatingPillView: View {
             }
         }
         .background(pillBackground)
+        .help(appState.isRecording ? "Listening — press Escape to cancel" : appState.engineStatus.phase == .ready ? appState.statusMessage : appState.engineStatus.message)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering
@@ -91,6 +92,10 @@ public struct FloatingPillView: View {
                 Text("Done")
                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     .foregroundColor(.green)
+            } else if appState.engineStatus.phase == .loading {
+                Text("Loading")
+                    .font(.system(size: 10.0, weight: .medium, design: .rounded))
+                    .foregroundColor(.orange)
             } else if appState.statusMessage != "Ready" {
                 Text(appState.statusMessage)
                     .font(.system(size: 10.0, weight: .medium, design: .rounded))
@@ -98,6 +103,11 @@ public struct FloatingPillView: View {
                     .lineLimit(1)
                     .frame(maxWidth: 55)
                     .truncationMode(.tail)
+            } else if appState.engineStatus.phase != .ready {
+                Text(appState.engineStatus.phase == .loading ? "Loading" : "Unavailable")
+                    .font(.system(size: 10.0, weight: .medium, design: .rounded))
+                    .foregroundColor(.orange)
+                    .lineLimit(1)
             } else {
                 // Sleek Idle text — NO dots, NO "Hold Fn"
                 Text("Metatron")
@@ -162,6 +172,18 @@ public struct FloatingPillView: View {
                 Image(systemName: "checkmark")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundColor(.green)
+            } else if appState.engineStatus.phase == .loading {
+                ProgressView()
+                    .controlSize(.mini)
+                    .frame(width: 10, height: 10)
+                    .help(appState.engineStatus.message)
+                    .accessibilityLabel(Text(appState.engineStatus.message))
+            } else if appState.statusMessage != "Ready" || appState.engineStatus.phase != .ready {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.orange)
+                    .help(appState.statusMessage != "Ready" ? appState.statusMessage : appState.engineStatus.message)
+                    .accessibilityLabel(Text(appState.statusMessage != "Ready" ? appState.statusMessage : appState.engineStatus.message))
             } else if isHovering && !appState.lastTranscribedText.isEmpty {
                 Button {
                     appState.copyLastDictation()
@@ -211,8 +233,8 @@ public struct FloatingPillView: View {
            let img = NSImage(contentsOf: masterURL) {
             return img
         }
-        if let fileURL = URL(string: "file:///path/to/user/Documents/_codeRepos/metatron-macbook/Resources/AppIcon_master.png"),
-           let img = NSImage(contentsOf: fileURL) {
+        let repoIcon = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("Resources/AppIcon_master.png")
+        if let img = NSImage(contentsOf: repoIcon) {
             return img
         }
         return NSApp.applicationIconImage ?? NSImage(named: NSImage.applicationIconName)

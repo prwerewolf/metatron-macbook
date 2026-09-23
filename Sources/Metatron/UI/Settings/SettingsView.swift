@@ -8,33 +8,30 @@ public struct SettingsView: View {
     public init() {}
 
     public var body: some View {
-        TabView(selection: $selectedTab) {
-            GeneralSettingsTab()
-                .tabItem {
-                    Label("General", systemImage: "gearshape")
-                }
-                .tag(0)
+        VStack(alignment: .leading, spacing: 18) {
+            Picker("Settings section", selection: $selectedTab) {
+                Text("General").tag(0)
+                Text("Microphone").tag(4)
+                Text("Writing").tag(1)
+                Text("Engine").tag(2)
+                Text("Privacy").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
-            StyleSettingsTab()
-                .tabItem {
-                    Label("Style & Eloquence", systemImage: "text.badge.star")
+            Group {
+                switch selectedTab {
+                case 4: MicrophoneSettingsView()
+                case 1: StyleSettingsTab()
+                case 2: EngineSettingsTab()
+                case 3: PrivacySettingsTab()
+                default: GeneralSettingsTab()
                 }
-                .tag(1)
-
-            EngineSettingsTab()
-                .tabItem {
-                    Label("Speech Engine", systemImage: "cpu")
-                }
-                .tag(2)
-
-            PrivacySettingsTab()
-                .tabItem {
-                    Label("Privacy", systemImage: "hand.raised.shield")
-                }
-                .tag(3)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(20)
-        .frame(width: 520, height: 440)
+        .frame(width: 560, height: 480)
     }
 }
 
@@ -58,6 +55,10 @@ struct GeneralSettingsTab: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+
+                Text("Press Escape to discard a recording or cancel a pending dictation.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             } header: {
                 Text("Activation & Controls")
                     .fontWeight(.semibold)
@@ -122,7 +123,7 @@ struct StyleSettingsTab: View {
                     Text("Custom Vocabulary & Acronyms")
                         .font(.subheadline)
                         .fontWeight(.medium)
-                    Text("Enter comma-separated words, technical terms, or company names to prioritize accurate spelling.")
+                    Text("Enter comma-separated names and technical terms to guide local speech recognition. Natural and Professional also preserve their preferred capitalization.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     TextEditor(text: $appState.customVocabularyText)
@@ -137,11 +138,11 @@ struct StyleSettingsTab: View {
     private var styleDescription: String {
         switch appState.transcriptionStyle {
         case .natural:
-            return "Wispr Flow style: eliminates 'um', 'uh', 'ah', 'like', and stutter repetitions. Punctuation is naturally preserved."
+            return "Light cleanup: removes clear hesitations while preserving your wording, punctuation, and sentence casing. Spoken punctuation words stay as words."
         case .professional:
-            return "Polished structure: eliminates filler words and automatically formats lists, bullet points, and sentence casing."
+            return "Formats spoken punctuation and bullet commands, tidies spacing, and capitalizes sentences. Preserves meaning without rewriting your speech."
         case .raw:
-            return "Exact verbatim speech: preserves every word spoken without filtering."
+            return "The speech recognizer's original output, with no cleanup, formatting, or vocabulary replacements."
         }
     }
 }
@@ -150,60 +151,51 @@ struct StyleSettingsTab: View {
 struct EngineSettingsTab: View {
     @ObservedObject var appState = AppState.shared
 
+    private var statusColor: Color {
+        switch appState.engineStatus.phase {
+        case .loading: return .orange
+        case .ready: return .green
+        case .unavailable: return .red
+        }
+    }
+
     var body: some View {
         Form {
             Section {
-                Picker("Speech Engine", selection: $appState.speechEngineType) {
-                    ForEach(SpeechEngineType.allCases) { engine in
-                        Text(engine.rawValue).tag(engine)
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "desktopcomputer")
+                        .foregroundColor(.orange)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Local Whisper on Apple Silicon")
+                            .fontWeight(.semibold)
+                        Text("Speech recognition runs on this Mac using mlx-whisper and Metal GPU acceleration. Your recordings stay on this Mac.")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
                     }
                 }
-                .pickerStyle(.radioGroup)
+                .padding(.vertical, 8)
 
-                if appState.speechEngineType == .localMLX {
-                    HStack(spacing: 8) {
-                        Image(systemName: "bolt.badge.checkmark.fill")
-                            .foregroundColor(.orange)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Apple M4 Max Acceleration Active")
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: appState.engineStatus.phase == .ready ? "checkmark.circle.fill" : "info.circle.fill")
+                        .foregroundColor(statusColor)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(appState.engineStatus.message)
+                            .font(.callout)
+                        if let model = appState.engineStatus.model {
+                            Text(model)
                                 .font(.caption)
-                                .fontWeight(.semibold)
-                            Text("Using native Metal GPU pipeline via mlx-whisper. 100% offline, private, and sub-200ms latency.")
-                                .font(.caption2)
                                 .foregroundColor(.secondary)
                         }
                     }
-                    .padding(8)
-                    .background(Color.orange.opacity(0.1))
-                    .cornerRadius(6)
-                    .padding(.top, 4)
                 }
-            } header: {
-                Text("Speech-to-Text Engine")
-                    .fontWeight(.semibold)
-            }
+                .padding(.vertical, 6)
 
-            if appState.speechEngineType == .groq {
-                Divider()
-                Section {
-                    SecureField("Groq API Key (gsk_...)", text: $appState.groqApiKey)
-                        .textFieldStyle(.roundedBorder)
-                    Text("Groq runs Whisper large-v3-turbo in ~150ms in the cloud.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } header: {
-                    Text("Groq Cloud Credentials")
-                        .fontWeight(.semibold)
-                }
-            } else if appState.speechEngineType == .openAI {
-                Divider()
-                Section {
-                    SecureField("OpenAI API Key (sk-...)", text: $appState.openAIApiKey)
-                        .textFieldStyle(.roundedBorder)
-                } header: {
-                    Text("OpenAI Credentials")
-                        .fontWeight(.semibold)
-                }
+                Text("Uses installed model files only. Model downloads and online checks are disabled.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("On-Device Speech Recognition")
+                    .fontWeight(.semibold)
             }
         }
     }
@@ -247,7 +239,7 @@ struct PrivacySettingsTab: View {
                         Text("Zero Permanent Storage Policy")
                             .font(.caption)
                             .fontWeight(.semibold)
-                        Text("Audio files are kept exclusively in temporary RAM during dictation and deleted the exact moment transcription finishes.")
+                        Text("Temporary recordings are deleted after processing or cancellation. Session history stays in memory on this Mac.")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }

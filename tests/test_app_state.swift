@@ -1,0 +1,306 @@
+import Foundation
+
+// Compile with AppState, SpeechEngine, and TextCleaner. These doubles keep tests
+// away from the microphone, system preferences, clipboard, and running daemon.
+public final class UserDefaults {
+    public static let standard = UserDefaults()
+    private var values: [String: Any] = [
+        "metatron_engine": "OpenAI Cloud (Whisper API)",
+        "metatron_groq_key": "test-only",
+        "metatron_openai_key": "test-only"
+    ]
+    public func set(_ value: Any?, forKey key: String) { values[key] = value }
+    public func removeObject(forKey key: String) { values.removeValue(forKey: key) }
+    public func string(forKey key: String) -> String? { values[key] as? String }
+    public func object(forKey key: String) -> Any? { values[key] }
+    public func bool(forKey key: String) -> Bool { values[key] as? Bool ?? false }
+}
+
+public final class NSPasteboard {
+    public static let general = NSPasteboard()
+    public enum PasteboardType { case string }
+    public private(set) var writes: [String] = []
+    public func clearContents() {}
+    public func setString(_ text: String, forType: PasteboardType) { writes.append(text) }
+}
+
+public enum HotkeyChoice: String { case fnHold }
+public enum DictationMode: String { case pushToTalk }
+public final class HotkeyManager {
+    public static let shared = HotkeyManager()
+    public static var granted = true
+    public var activeHotkey = HotkeyChoice.fnHold
+    public var activeMode = DictationMode.pushToTalk
+    public var onHotkeyDown: (() -> Void)?
+    public var onHotkeyUp: (() -> Void)?
+    public var onToggle: (() -> Void)?
+    public var onCancel: (() -> Void)?
+    public static func isAccessibilityGranted() -> Bool { granted }
+    public static func requestAccessibilityPermission() {}
+}
+
+public final class AudioRecorder {
+    public static let shared = AudioRecorder()
+    public var onAudioLevel: ((Float) -> Void)?
+    public var onRecordingError: ((Error, URL?) -> Void)?
+    public private(set) var recordings: [URL] = []
+    public var removeOnStop = false
+    public func startRecording() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("metatron-state-test-\(UUID().uuidString)")
+        try Data([0]).write(to: url)
+        recordings.append(url)
+        return url
+    }
+    public func stopRecording() -> URL? {
+        if removeOnStop, let url = recordings.last {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return recordings.last
+    }
+}
+
+public final class SoundEffects {
+    public static let shared = SoundEffects()
+    public var isSoundEnabled = false
+    public func playStart() {}
+    public func playStop() {}
+    public func playSuccess() {}
+    public func playError() {}
+}
+
+@MainActor
+public final class LocalDaemonClient: SpeechEngineProtocol {
+    public static let shared = LocalDaemonClient()
+    public var result: Result<String, Error> = .success("Test dictation")
+    public var status = LocalEngineStatus(phase: .ready, message: "Ready", model: "test-local-model")
+    public var suspend = false
+    public var pending: [CheckedContinuation<String, Error>] = []
+    public private(set) var requests: [(vocabulary: [String], style: TranscriptionStyle)] = []
+    public func engineStatus() async -> LocalEngineStatus { status }
+    public func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle) async throws -> String {
+        requests.append((vocabulary, style))
+        if suspend {
+            return try await withCheckedThrowingContinuation { pending.append($0) }
+        }
+        return try result.get()
+    }
+}
+
+public struct InsertionTarget {
+    public static var current = true
+    public static func capture() -> InsertionTarget? { InsertionTarget() }
+    public var isCurrent: Bool { Self.current }
+}
+
+public final class TextInserter {
+    public static let shared = TextInserter()
+    public var pendingCompletion: (() -> Void)?
+    public func insertText(_ text: String, keepOnClipboard: Bool, target: InsertionTarget?, shouldInsert: (() -> Bool)? = nil, completion: ((Bool) -> Void)? = nil) {
+        pendingCompletion = { completion?(target?.isCurrent == true && shouldInsert?() != false) }
+    }
+}
+
+@main
+struct AppStateTests {
+    @MainActor
+    static func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<500 {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        preconditionFailure("Timed out waiting for state transition")
+    }
+
+    @MainActor
+    static func main() async throws {
+        let state = AppState.shared
+        let recorder = AudioRecorder.shared
+        let engine = LocalDaemonClient.shared
+        defer {
+            for url in recorder.recordings { try? FileManager.default.removeItem(at: url) }
+        }
+        for key in ["metatron_engine", "metatron_groq_key", "metatron_openai_key"] {
+            precondition(UserDefaults.standard.object(forKey: key) == nil, "Legacy cloud settings must be retired")
+        }
+
+        state.autoInsertText = false
+        state.autoCopyToClipboard = false
+        state.startRecording()
+        precondition(!state.isRecording, "Loading model must not appear ready")
+        await state.refreshEngineStatus()
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(state.showSuccess && state.lastTranscribedText == "Test dictation")
+        precondition(!FileManager.default.fileExists(atPath: recorder.recordings[0].path))
+
+        // Feedback must not delay the next recording or reset its listening state.
+        state.startRecording()
+        precondition(state.isRecording && !state.showSuccess)
+        try await Task.sleep(nanoseconds: 2_300_000_000)
+        precondition(state.isRecording && state.statusMessage == "Listening...")
+        precondition(FileManager.default.fileExists(atPath: recorder.recordings[1].path))
+
+        LocalDaemonClient.shared.result = .failure(NSError(
+            domain: "Test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Test failure"]
+        ))
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(state.statusMessage == "Test failure" && !state.showSuccess)
+        precondition(!FileManager.default.fileExists(atPath: recorder.recordings[1].path))
+
+        LocalDaemonClient.shared.result = .success("")
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(state.statusMessage == "No Speech Detected")
+        try await Task.sleep(nanoseconds: 1_300_000_000)
+        precondition(state.statusMessage == "Ready")
+
+        recorder.removeOnStop = true
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(state.statusMessage == "No Audio")
+        recorder.removeOnStop = false
+
+        // Preserve the user-requested clipboard fallback when permission is absent.
+        LocalDaemonClient.shared.result = .success("Test dictation")
+        HotkeyManager.granted = false
+        state.autoInsertText = true
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(!state.autoCopyToClipboard)
+        precondition(NSPasteboard.general.writes == ["Test dictation"])
+        precondition(state.statusMessage == "Copied! (Grant Accessibility to auto-insert)")
+
+        // Actual insertion still finishes before another recording can begin.
+        HotkeyManager.granted = true
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { TextInserter.shared.pendingCompletion != nil }
+        precondition(state.isProcessing)
+        state.startRecording()
+        precondition(!state.isRecording)
+        TextInserter.shared.pendingCompletion?()
+        TextInserter.shared.pendingCompletion = nil
+        try await waitUntil { !state.isProcessing }
+        precondition(state.showSuccess && state.statusMessage == "Inserted!")
+        precondition(!FileManager.default.fileExists(atPath: recorder.recordings.last!.path))
+
+        // A changed destination retains the result for explicit copy, without a false success.
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { TextInserter.shared.pendingCompletion != nil }
+        InsertionTarget.current = false
+        TextInserter.shared.pendingCompletion?()
+        TextInserter.shared.pendingCompletion = nil
+        try await waitUntil { !state.isProcessing }
+        precondition(state.hasPendingInsertion && !state.showSuccess)
+        precondition(state.lastTranscribedText == "Test dictation")
+        precondition(state.statusMessage.contains("Focus changed"))
+        InsertionTarget.current = true
+
+        // Escape stops capture, deletes its file, and never calls the recognizer.
+        let callsBeforeCancel = engine.requests.count
+        state.startRecording()
+        let canceledFile = recorder.recordings.last!
+        HotkeyManager.shared.onCancel?()
+        try await waitUntil { !state.isRecording }
+        precondition(state.statusMessage == "Canceled")
+        precondition(engine.requests.count == callsBeforeCancel)
+        precondition(!FileManager.default.fileExists(atPath: canceledFile.path))
+
+        // Cancel before the queued task starts: its missing-file path must not affect new capture.
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        state.cancelDictation()
+        state.startRecording()
+        try await Task.sleep(nanoseconds: 20_000_000)
+        precondition(state.isRecording && state.statusMessage == "Listening...")
+        state.cancelDictation()
+
+        // Canceled recognition can finish later without inserting or resetting newer work.
+        state.autoInsertText = false
+        engine.suspend = true
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { engine.pending.count == 1 }
+        state.cancelDictation()
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { engine.pending.count == 2 }
+        let historyCount = state.history.count
+        engine.pending.removeFirst().resume(returning: "Canceled result")
+        try await Task.sleep(nanoseconds: 20_000_000)
+        precondition(state.isProcessing && state.history.count == historyCount)
+        precondition(state.lastTranscribedText != "Canceled result")
+        engine.pending.removeFirst().resume(returning: "Current result")
+        try await waitUntil { !state.isProcessing }
+        precondition(state.lastTranscribedText == "Current result")
+        engine.suspend = false
+
+        // Cancellation during the paste delay invalidates the insertion guard too.
+        state.autoInsertText = true
+        let lastTextBeforeCanceledPaste = state.lastTranscribedText
+        let historyBeforeCanceledPaste = state.history.count
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { TextInserter.shared.pendingCompletion != nil }
+        state.cancelDictation()
+        state.startRecording()
+        TextInserter.shared.pendingCompletion?()
+        TextInserter.shared.pendingCompletion = nil
+        try await Task.sleep(nanoseconds: 20_000_000)
+        precondition(state.isRecording && !state.isProcessing && !state.showSuccess && state.statusMessage == "Listening...")
+        precondition(state.lastTranscribedText == lastTextBeforeCanceledPaste && state.history.count == historyBeforeCanceledPaste)
+        precondition(FileManager.default.fileExists(atPath: recorder.recordings.last!.path))
+        state.cancelDictation()
+
+        // Vocabulary and style are captured per utterance, including unchanged Raw output.
+        state.autoInsertText = false
+        state.customVocabularyText = "Sample User, Metatron"
+        state.transcriptionStyle = .raw
+        engine.result = .success("  um, metatron period  ")
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        state.transcriptionStyle = .professional
+        try await waitUntil { !state.isProcessing }
+        precondition(engine.requests.last!.vocabulary == ["Sample User", "Metatron"])
+        precondition(engine.requests.last!.style == .raw)
+        precondition(state.lastTranscribedText == "  um, metatron period  ")
+
+        // Purge must also remove the copyable last result and pending insertion.
+        precondition(!state.history.isEmpty)
+        state.clearHistory()
+        precondition(state.history.isEmpty && state.lastTranscribedText.isEmpty)
+        precondition(!state.hasPendingInsertion && !state.showSuccess)
+        let clipboardWritesBeforeCopy = NSPasteboard.general.writes.count
+        state.copyLastDictation()
+        precondition(NSPasteboard.general.writes.count == clipboardWritesBeforeCopy,
+                     "Copy Last Dictation must not recover purged speech")
+
+        state.historyRetention = .clearOnQuit
+        engine.result = .success("Before incognito")
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(!state.history.isEmpty && state.lastTranscribedText == "Before incognito")
+        state.historyRetention = .off
+        precondition(state.history.isEmpty && state.lastTranscribedText.isEmpty,
+                     "Entering Incognito must clear prior session dictations")
+        state.historyRetention = .clearOnQuit
+
+        // A microphone disconnect discards capture and provides actionable feedback.
+        state.startRecording()
+        let failedFile = recorder.recordings.last!
+        AudioRecorder.shared.onRecordingError?(NSError(domain: "Test", code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Microphone disconnected"]), failedFile)
+        precondition(!state.isRecording && !state.isProcessing)
+        precondition(state.statusMessage == "Microphone disconnected")
+        precondition(!FileManager.default.fileExists(atPath: failedFile.path))
+        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, and unchanged clipboard fallback.")
+    }
+}

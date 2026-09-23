@@ -1,6 +1,6 @@
 import Foundation
 
-public enum TranscriptionStyle: String, CaseIterable, Identifiable, Codable {
+public enum TranscriptionStyle: String, CaseIterable, Identifiable, Codable, Sendable {
     case natural = "Natural (Direct, No Fillers)"
     case professional = "Professional (Polished & Formatted)"
     case raw = "Raw (Verbatim)"
@@ -15,81 +15,58 @@ public final class TextCleaner {
 
     private init() {}
 
-    /// Main cleaning pipeline that transforms raw Whisper speech into clean, polished text
-    public func clean(text: String, style: TranscriptionStyle = .natural) -> String {
+    /// Raw preserves the exact recognizer output, including whitespace. Natural
+    /// removes clear disfluencies; Professional additionally interprets formatting commands.
+    public func clean(text: String, style: TranscriptionStyle = .natural, vocabulary: [String]? = nil) -> String {
+        if style == .raw { return text }
+
         var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.isEmpty { return "" }
 
-        if style == .raw {
-            return applyCustomVocabulary(result)
-        }
-
-        // 1. Convert spoken punctuation
-        result = convertSpokenPunctuation(result)
-
-        // 2. Remove filler words (ums, ahs, etc.)
         result = removeFillerWords(result)
-
-        // 3. Deduplicate stutters (e.g., "I I think" -> "I think")
         result = deduplicateStutters(result)
+        result = deduplicateRepetitivePhrases(result)
+        result = normalizeWhitespace(result)
 
-        // 4. Format spoken lists and bullet points
-        result = formatSpokenLists(result)
+        if style == .professional {
+            result = convertSpokenPunctuation(result)
+            result = formatSpokenLists(result)
+            result = normalizePunctuationAndSpacing(result)
 
-        // 5. Clean up whitespace and typographical punctuation
-        result = normalizePunctuationAndSpacing(result)
-
-        // 6. Apply custom vocabulary replacements
-        result = applyCustomVocabulary(result)
-
-        // 7. Ensure initial capitalization
-        if let first = result.first, first.isLowercase {
-            result = result.prefix(1).uppercased() + result.dropFirst()
-        }
-
-        return result
-    }
-
-    /// Strips common vocal filler words: um, uh, ah, er, erm, you know, etc.
-    private func removeFillerWords(_ text: String) -> String {
-        let fillers = [
-            ",?\\s*\\b(um+h*)\\b\\s*,?",
-            ",?\\s*\\b(uh+h*)\\b\\s*,?",
-            ",?\\s*\\b(ah+h*)\\b\\s*,?",
-            ",?\\s*\\b(er+m*)\\b\\s*,?",
-            ",?\\s*\\b(erm)\\b\\s*,?",
-            ",?\\s*\\b(you know)\\b\\s*,?",
-            ",?\\s*\\b(i mean)\\b\\s*,?",
-            ",?\\s*\\b(sort of)\\b\\s*,?",
-            ",?\\s*\\b(kind of)\\b\\s*,?"
-        ]
-
-        var cleaned = text
-        for pattern in fillers {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-                cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(location: 0, length: cleaned.utf16.count), withTemplate: " ")
+            if let first = result.first, first.isLowercase {
+                result = result.prefix(1).uppercased() + result.dropFirst()
             }
         }
 
-        // Clean up conversational "like" when used as filler (e.g., ", like, ")
-        let conversationalLike = try? NSRegularExpression(pattern: "(,\\s*like,\\s*)|(^like,\\s*)", options: [.caseInsensitive])
-        if let regex = conversationalLike {
-            cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(location: 0, length: cleaned.utf16.count), withTemplate: " ")
-        }
+        // Apply last so preferred casing such as "macOS" wins over sentence casing.
+        return applyCustomVocabulary(result, terms: vocabulary ?? customVocabulary)
+    }
 
+    /// Remove only unambiguous interjections. Preserve meaningful phrases, acronyms
+    /// such as ER, and explicitly quoted words such as "um".
+    private func removeFillerWords(_ text: String) -> String {
+        let pattern = ",?[ \\t]*(?<![\\w'’\"“”-])(?:[Uu]m+|[Uu]h+|[Ee]rm+)(?![\\w'’\"“”-])[ \\t]*,?"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(location: 0, length: text.utf16.count)
+        guard regex.firstMatch(in: text, range: range) != nil else { return text }
+        let cleaned = regex.stringByReplacingMatches(in: text, range: range, withTemplate: " ")
+        if cleaned.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:"))).isEmpty {
+            return ""
+        }
         return cleaned
     }
 
-    /// Cleans stutters and immediate word repetitions (e.g., "we we" -> "we", "I, I" -> "I")
+    /// Comma-marked pronoun/article restarts are safe to remove; repeated words
+    /// such as "had had", "that that", and emphatic "No, no" can carry meaning.
     private func deduplicateStutters(_ text: String) -> String {
-        let stutterPattern = "\\b([a-zA-Z]+)(?:,\\s*|\\s+)\\1\\b"
+        let stutterPattern = "(?<![\\w'’-])(I|we|you|he|she|it|they|a|an|the),[ \\t]*\\1(?![\\w'’-])"
         guard let regex = try? NSRegularExpression(pattern: stutterPattern, options: [.caseInsensitive]) else {
             return text
         }
 
         var result = text
         var matched = true
-        // Loop in case of triple stutters like "the the the"
+        // Loop in case of several comma-marked restarts such as "I, I, I".
         while matched {
             let range = NSRange(location: 0, length: result.utf16.count)
             if regex.firstMatch(in: result, options: [], range: range) != nil {
@@ -101,52 +78,184 @@ public final class TextCleaner {
         return result
     }
 
-    /// Converts spoken punctuation words into actual symbols
+    /// Deduplicates repetitive sentence loops and multi-word phrase repetitions (Whisper hallucination loops)
+    private func deduplicateRepetitivePhrases(_ text: String) -> String {
+        var result = text
+
+        // Require three complete occurrences so ordinary two-part emphasis survives.
+        let sentencePattern = "(?<![\\w'’-])((?:[^.?!\\n]+?[.?!]))(?:\\s+\\1){2,}"
+        if let regex = try? NSRegularExpression(pattern: sentencePattern, options: [.caseInsensitive]) {
+            var matched = true
+            while matched {
+                let range = NSRange(location: 0, length: result.utf16.count)
+                if regex.firstMatch(in: result, options: [], range: range) != nil {
+                    result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+                } else {
+                    matched = false
+                }
+            }
+        }
+
+        // 2. Deduplicate repeated multi-word phrases (2 to 8 words) (e.g. "phrase phrase phrase" -> "phrase")
+        // Match complete words in every occurrence, including the final repetition.
+        // Otherwise "to go to Google" is mistaken for a repeated "to go".
+        let phrasePattern = "(?<![\\w'’-])((?:[a-zA-Z0-9']+[-,\\s]+){1,8}[a-zA-Z0-9']+)(?![\\w'’-])(?:[,\\s]+\\1(?![\\w'’-])){2,}"
+        if let regex = try? NSRegularExpression(pattern: phrasePattern, options: [.caseInsensitive]) {
+            var matched = true
+            while matched {
+                let range = NSRange(location: 0, length: result.utf16.count)
+                if regex.firstMatch(in: result, options: [], range: range) != nil {
+                    result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "$1")
+                } else {
+                    matched = false
+                }
+            }
+        }
+
+        return result
+    }
+
+    /// Converts only unambiguous dictation commands. Command words are common
+    /// prose, so a formatting mode must not treat every occurrence as syntax.
     private func convertSpokenPunctuation(_ text: String) -> String {
         var str = text
 
         let mappings: [(String, String)] = [
-            ("\\bperiod\\b", "."),
             ("\\bfull stop\\b", "."),
-            ("\\bcomma\\b", ","),
             ("\\bquestion mark\\b", "?"),
-            ("\\bexclamation mark\\b", "!"),
             ("\\bexclamation point\\b", "!"),
-            ("\\bcolon\\b", ":"),
-            ("\\bsemicolon\\b", ";"),
+            ("\\bexclamation mark\\b", "!"),
+            ("\\bnew paragraph\\b", "\n\n"),
             ("\\bnew line\\b", "\n"),
-            ("\\bnew paragraph\\b", "\n\n")
+            ("\\bquestion mark\\b", "?"),
+            ("\\bsemicolon\\b", ";"),
+            ("\\bperiod\\b", "."),
+            ("\\bcomma\\b", ","),
+            ("\\bcolon\\b", ":")
         ]
 
         for (spoken, symbol) in mappings {
             if let regex = try? NSRegularExpression(pattern: spoken, options: [.caseInsensitive]) {
-                str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: symbol)
+                let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+                for match in matches.reversed() where isSpokenPunctuationCommand(in: str, range: match.range) {
+                    str = (str as NSString).replacingCharacters(in: match.range, with: symbol)
+                }
             }
         }
 
         return str
     }
 
+    /// Dictation commands have a small set of deliberately explicit contexts:
+    /// a trailing sentence command, a command chain, or "say <command>". Inline
+    /// separators remain useful, but exclude article/definition contexts such as
+    /// "a comma is punctuation" where the word is clearly being discussed.
+    private func isSpokenPunctuationCommand(in text: String, range: NSRange) -> Bool {
+        guard !isQuoted(text, at: range.location) else { return false }
+
+        let words = adjacentWords(in: text, around: range)
+        let before = words.before.lowercased()
+        let after = words.after.lowercased()
+        if before == "say" { return true }
+        let articles = ["a", "an", "the", "this", "that"]
+        // "the semicolon." and "a period." name a literal token even though
+        // they happen to end a sentence.
+        if articles.contains(before) { return false }
+
+        let nsText = text as NSString
+        let trailing = nsText.substring(from: range.location + range.length)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if trailing.isEmpty || trailing.allSatisfy({ ".!?;:".contains($0) }) { return true }
+
+        // A chain makes the speaker's formatting intent explicit: "period new paragraph".
+        if trailing.range(of: "^(?:period|full stop|comma|question mark|exclamation (?:mark|point)|colon|semicolon|new (?:line|paragraph)|bullet(?: point)?)\\b", options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
+        }
+
+        let command = nsText.substring(with: range).lowercased()
+        if command == "comma" || command == "colon" || command == "semicolon" {
+            let definitionVerbs = ["is", "means", "mean", "denotes", "denote", "represents", "represent", "refers", "refer"]
+            return !before.isEmpty && !articles.contains(before) && !definitionVerbs.contains(after)
+        }
+
+        if command == "new line" || command == "new paragraph" {
+            return !before.isEmpty && !["a", "an", "the", "this", "that"].contains(before)
+        }
+
+        return false
+    }
+
+    private func adjacentWords(in text: String, around range: NSRange) -> (before: String, after: String) {
+        guard let regex = try? NSRegularExpression(pattern: "[A-Za-z]+") else { return ("", "") }
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: text.utf16.count))
+        let nsText = text as NSString
+        let before = matches.last(where: { NSMaxRange($0.range) <= range.location })
+            .map { nsText.substring(with: $0.range) } ?? ""
+        let after = matches.first(where: { $0.range.location >= NSMaxRange(range) })
+            .map { nsText.substring(with: $0.range) } ?? ""
+        return (before, after)
+    }
+
+    private func isQuoted(_ text: String, at location: Int) -> Bool {
+        let prefix = (text as NSString).substring(to: location)
+        let straightQuoteCount = prefix.filter { $0 == "\"" }.count
+        let openingCurlyQuoteCount = prefix.filter { $0 == "“" }.count
+        let closingCurlyQuoteCount = prefix.filter { $0 == "”" }.count
+        return straightQuoteCount % 2 == 1 || openingCurlyQuoteCount > closingCurlyQuoteCount
+    }
+
     /// Detects spoken lists (e.g., "bullet one ... bullet two ...") and formats into clean Markdown
     private func formatSpokenLists(_ text: String) -> String {
         var str = text
 
-        // Bullets: "bullet point [something]" or "bullet [something]"
-        let bulletPattern = "(?:\\b(?:bullet point|bullet)\\s*(?:one|two|three|four|five|[0-9]+)?\\b[:]?\\s*)"
+        // Bare "bullet" is too easily an ordinary noun. Require an ordinal for
+        // it, while allowing "bullet point" at a clause boundary as a heading.
+        let bulletPattern = "\\b(?:bullet\\s+(?:one|two|three|four|five|[0-9]+)|bullet point(?:\\s+(?:one|two|three|four|five|[0-9]+))?)\\b[:]?\\s*"
         if let regex = try? NSRegularExpression(pattern: bulletPattern, options: [.caseInsensitive]) {
-            str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: "\n• ")
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+            for match in matches.reversed() where isSpokenListCommand(in: str, range: match.range) {
+                str = (str as NSString).replacingCharacters(in: match.range, with: "\n• ")
+            }
         }
 
         return str
     }
 
-    /// Cleans up doubled spaces, spaced punctuation like "word , word", and fixes capitalization
+    private func isSpokenListCommand(in text: String, range: NSRange) -> Bool {
+        guard !isQuoted(text, at: range.location) else { return false }
+        let command = (text as NSString).substring(with: range).lowercased()
+        if command.contains("bullet point") {
+            let prefix = (text as NSString).substring(to: range.location)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return prefix.isEmpty || prefix.last.map { ".!?:\\n".contains($0) } == true
+        }
+        return true // An ordinal makes a spoken bullet command explicit.
+    }
+
+    private func normalizeWhitespace(_ text: String) -> String {
+        let regex = try? NSRegularExpression(pattern: "[ \\t]+")
+        var normalized = regex?.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: text.utf16.count), withTemplate: " ") ?? text
+        if let punctuationSpacing = try? NSRegularExpression(pattern: "[ \\t]+([.,!?:;])") {
+            normalized = punctuationSpacing.stringByReplacingMatches(in: normalized, range: NSRange(location: 0, length: normalized.utf16.count), withTemplate: "$1")
+        }
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Professional formatting: normalize punctuation spacing and sentence casing.
     private func normalizePunctuationAndSpacing(_ text: String) -> String {
         var str = text
 
         // Replace multiple spaces with a single space
         if let regex = try? NSRegularExpression(pattern: "[ \\t]+", options: []) {
             str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: " ")
+        }
+
+        // Spoken line/paragraph and list commands can leave spaces around newlines.
+        if let regex = try? NSRegularExpression(pattern: "[ \\t]*\\n[ \\t]*") {
+            str = regex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "\n")
+        }
+        if let regex = try? NSRegularExpression(pattern: "\\n{3,}") {
+            str = regex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "\n\n")
         }
 
         // Remove duplicate commas: ",," -> ","
@@ -169,8 +278,8 @@ public final class TextCleaner {
             str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: "$1")
         }
 
-        // Capitalize after sentence-ending punctuation: ". word" -> ". Word"
-        if let regex = try? NSRegularExpression(pattern: "([.!?]\\s+)([a-z])", options: []) {
+        // Capitalize sentences, new lines, and bullet items.
+        if let regex = try? NSRegularExpression(pattern: "(^|[.!?]\\s+|\\n[ \\t]*|•[ \\t]+)([a-z])", options: []) {
             let nsStr = str as NSString
             let matches = regex.matches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count))
             for match in matches.reversed() {
@@ -189,14 +298,14 @@ public final class TextCleaner {
     }
 
     /// Replaces custom dictionary terms
-    private func applyCustomVocabulary(_ text: String) -> String {
+    private func applyCustomVocabulary(_ text: String, terms: [String]) -> String {
         var str = text
-        for term in customVocabulary {
+        for term in terms {
             let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            let pattern = "\\b" + NSRegularExpression.escapedPattern(for: trimmed) + "\\b"
+            let pattern = "(?<!\\w)" + NSRegularExpression.escapedPattern(for: trimmed) + "(?!\\w)"
             if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-                str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: trimmed)
+                str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: NSRegularExpression.escapedTemplate(for: trimmed))
             }
         }
         return str

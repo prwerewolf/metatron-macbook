@@ -4,10 +4,20 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
-# Kill any previous instance of Metatron or the daemon
-pkill -f "Metatron.app/Contents/MacOS/Metatron" 2>/dev/null || true
-pkill -f "whisper_daemon.py" 2>/dev/null || true
-rm -f /tmp/metatron.sock 2>/dev/null || true
+# Restart this app. The client verifies and replaces its own resident daemon;
+# removing the socket or broadly killing Python processes can race that handoff.
+APP_EXECUTABLE="$DIR/Metatron.app/Contents/MacOS/Metatron"
+pkill -f "$APP_EXECUTABLE" 2>/dev/null || true
+for _ in {1..50}; do
+    if ! pgrep -f "$APP_EXECUTABLE" >/dev/null 2>&1; then
+        break
+    fi
+    sleep 0.1
+done
+if pgrep -f "$APP_EXECUTABLE" >/dev/null 2>&1; then
+    echo "Metatron is still running; close it before relaunching."
+    exit 1
+fi
 
 # Check if .app exists, if not build it
 if [ ! -d "$DIR/Metatron.app" ]; then
@@ -15,19 +25,9 @@ if [ ! -d "$DIR/Metatron.app" ]; then
     "$DIR/scripts/build_app.sh"
 fi
 
-echo "Starting Metatron daemon in background..."
-if [ -f "$DIR/.venv/bin/python3" ]; then
-    "$DIR/.venv/bin/python3" "$DIR/daemon/whisper_daemon.py" > /tmp/metatron_daemon.log 2>&1 &
-elif which uv >/dev/null 2>&1; then
-    uv run --directory "$DIR" python3 "$DIR/daemon/whisper_daemon.py" > /tmp/metatron_daemon.log 2>&1 &
-else
-    python3 "$DIR/daemon/whisper_daemon.py" > /tmp/metatron_daemon.log 2>&1 &
-fi
-
-sleep 1
-
 echo "Launching Metatron.app..."
 open "$DIR/Metatron.app"
 
 echo "Metatron is running!"
+echo "Its local speech engine will load automatically and show Ready when available."
 echo "Hold down the Function (Fn) key and speak, then release to transcribe and paste."

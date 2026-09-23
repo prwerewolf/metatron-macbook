@@ -1,6 +1,13 @@
 import Foundation
 import AVFoundation
+import AudioToolbox
 import Accelerate
+
+enum AudioCaptureConfigurationAction: Equatable {
+    case unchanged
+    case restart
+    case fail
+}
 
 public final class AudioRecorder: NSObject {
     public static let shared = AudioRecorder()
@@ -9,18 +16,28 @@ public final class AudioRecorder: NSObject {
     private var audioFile: AVAudioFile?
     private var tempFileURL: URL?
     private var isRecordingInternal = false
+    private var isTestingInternal = false
+    private var captureToken: UUID?
+    private var captureGate: CaptureGate?
+    private var configurationObserver: NSObjectProtocol?
+    private var testFailure: ((Error) -> Void)?
 
     public var onAudioLevel: ((Float) -> Void)?
+    /// Delivered on the main queue after capture has stopped. The caller owns
+    /// removal of the incomplete WAV and resetting the dictation interface.
+    public var onRecordingError: ((Error, URL?) -> Void)?
 
-    public var isRecording: Bool {
-        return isRecordingInternal
+    public var selectedInputUID: String {
+        get { MicrophoneController.shared.selectedInputUID }
+        set { MicrophoneController.shared.selectedInputUID = newValue }
     }
+
+    public var isRecording: Bool { isRecordingInternal }
 
     private override init() {
         super.init()
     }
 
-    /// Request microphone access if not already granted
     public func requestPermission(completion: @escaping (Bool) -> Void) {
         if #available(macOS 14.0, *) {
             AVAudioApplication.requestRecordPermission { granted in
@@ -41,126 +58,326 @@ public final class AudioRecorder: NSObject {
         }
     }
 
-    /// Starts recording audio from the default input device
+    /// Starts a 16 kHz mono PCM recording using the chosen input device.
     public func startRecording() throws -> URL {
-        guard !isRecordingInternal else {
-            return tempFileURL ?? URL(fileURLWithPath: "/tmp/metatron_temp.wav")
+        if isRecordingInternal, let existingURL = tempFileURL { return existingURL }
+        MicrophoneController.shared.stopTest()
+        let (engine, device, inputFormat) = try makeInputEngine()
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("metatron_\(UUID().uuidString).wav")
+        let token = UUID()
+        let gate = CaptureGate()
+        var tapInstalled = false
+
+        do {
+            let converter = try Self.makeWhisperConverter(from: inputFormat)
+            let whisperFormat = converter.outputFormat
+
+            let file = try AVAudioFile(
+                forWriting: outputURL,
+                settings: whisperFormat.settings,
+                commonFormat: .pcmFormatInt16,
+                interleaved: false
+            )
+            audioEngine = engine
+            audioFile = file
+            tempFileURL = outputURL
+            captureToken = token
+            captureGate = gate
+            isRecordingInternal = true
+
+            engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self, weak file] buffer, _ in
+                guard let self else { return }
+                gate.performWhileActive {
+                    guard let file else { return }
+                    let level = Self.calculateAudioLevel(buffer: buffer)
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.captureToken == token else { return }
+                        self.onAudioLevel?(level)
+                    }
+
+                    let capacity = AVAudioFrameCount(Double(buffer.frameLength) * (16000.0 / inputFormat.sampleRate)) + 64
+                    guard let converted = AVAudioPCMBuffer(pcmFormat: whisperFormat, frameCapacity: capacity) else { return }
+                    var conversionError: NSError?
+                    var consumed = false
+                    converter.convert(to: converted, error: &conversionError) { _, status in
+                        if consumed {
+                            status.pointee = .noDataNow
+                            return nil
+                        }
+                        consumed = true
+                        status.pointee = .haveData
+                        return buffer
+                    }
+                    if let conversionError {
+                        self.reportFailure(conversionError, token: token)
+                        return
+                    }
+                    if converted.frameLength > 0 {
+                        do { try file.write(from: converted) }
+                        catch { self.reportFailure(error, token: token) }
+                    }
+                }
+            }
+            tapInstalled = true
+            engine.prepare()
+            try engine.start()
+            watchConfiguration(engine, device: device, format: inputFormat, token: token)
+            MicrophoneController.shared.recordingStarted(device: device)
+            return outputURL
+        } catch {
+            gate.close()
+            if tapInstalled { engine.inputNode.removeTap(onBus: 0) }
+            engine.stop()
+            audioEngine = nil
+            audioFile = nil
+            tempFileURL = nil
+            captureToken = nil
+            captureGate = nil
+            isRecordingInternal = false
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
         }
+    }
 
-        let tempDir = FileManager.default.temporaryDirectory
-        let fileName = "metatron_\(UUID().uuidString).wav"
-        let outputURL = tempDir.appendingPathComponent(fileName)
-        self.tempFileURL = outputURL
+    public func stopRecording() -> URL? {
+        guard isRecordingInternal else { return nil }
+        isRecordingInternal = false
+        endCapture()
+        audioFile = nil
+        let url = tempFileURL
+        tempFileURL = nil
+        MicrophoneController.shared.recordingStopped()
+        return url
+    }
 
-        let engine = AVAudioEngine()
-        self.audioEngine = engine
-        let inputNode = engine.inputNode
+    /// Only computes levels in memory: no file, conversion, or transcription.
+    func startMicrophoneTest(
+        onLevel: @escaping (Float) -> Void,
+        onFailure: @escaping (Error) -> Void
+    ) throws -> AudioInputDevice {
+        guard !isRecordingInternal else { throw MicrophoneError.recordingInProgress }
+        stopMicrophoneTest()
+        let (engine, device, inputFormat) = try makeInputEngine()
+        let token = UUID()
+        let gate = CaptureGate()
+        audioEngine = engine
+        captureToken = token
+        captureGate = gate
+        testFailure = onFailure
+        isTestingInternal = true
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+            gate.performWhileActive {
+                let level = Self.calculateAudioLevel(buffer: buffer)
+                DispatchQueue.main.async { [weak self] in
+                    guard self?.captureToken == token else { return }
+                    onLevel(level)
+                }
+            }
+        }
+        do {
+            engine.prepare()
+            try engine.start()
+            watchConfiguration(engine, device: device, format: inputFormat, token: token)
+            return device
+        } catch {
+            stopMicrophoneTest()
+            throw error
+        }
+    }
 
-        // Whisper expects 16kHz, 1-channel, 16-bit Linear PCM
-        guard let whisperFormat = AVAudioFormat(
+    func stopMicrophoneTest() {
+        guard isTestingInternal else { return }
+        isTestingInternal = false
+        endCapture()
+        testFailure = nil
+    }
+
+    static func makeWhisperConverter(from inputFormat: AVAudioFormat) throws -> AVAudioConverter {
+        guard let format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: 16000,
             channels: 1,
             interleaved: false
-        ) else {
-            throw NSError(domain: "MetatronAudio", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create 16kHz target audio format"])
+        ), let converter = AVAudioConverter(from: inputFormat, to: format) else {
+            throw MicrophoneError.invalidFormat
         }
-
-        let inputFormat = inputNode.inputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0 else {
-            throw NSError(domain: "MetatronAudio", code: 2, userInfo: [NSLocalizedDescriptionKey: "Microphone input format invalid or device disconnected"])
-        }
-
-        let audioFile = try AVAudioFile(
-            forWriting: outputURL,
-            settings: whisperFormat.settings,
-            commonFormat: .pcmFormatInt16,
-            interleaved: false
-        )
-        self.audioFile = audioFile
-
-        guard let formatConverter = AVAudioConverter(from: inputFormat, to: whisperFormat) else {
-            throw NSError(domain: "MetatronAudio", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio format converter"])
-        }
-
-        let bufferSize: AVAudioFrameCount = 1024
-        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: inputFormat) { [weak self] buffer, _ in
-            guard let self = self, self.isRecordingInternal else { return }
-
-            // 1. Calculate RMS audio power for waveform visualization
-            let level = self.calculateAudioLevel(buffer: buffer)
-            DispatchQueue.main.async {
-                self.onAudioLevel?(level)
-            }
-
-            // 2. Convert incoming buffer to 16kHz PCM and write to disk
-            let capacity = AVAudioFrameCount(Double(buffer.frameLength) * (16000.0 / inputFormat.sampleRate)) + 64
-            guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: whisperFormat, frameCapacity: capacity) else { return }
-
-            var error: NSError?
-            var allConsumed = false
-
-            formatConverter.convert(to: convertedBuffer, error: &error) { _, outStatus in
-                if !allConsumed {
-                    allConsumed = true
-                    outStatus.pointee = .haveData
-                    return buffer
-                } else {
-                    outStatus.pointee = .noDataNow
-                    return nil
-                }
-            }
-
-            if let error = error {
-                NSLog("[MetatronAudio] Conversion error: \(error)")
-                return
-            }
-
-            if convertedBuffer.frameLength > 0 {
-                do {
-                    try self.audioFile?.write(from: convertedBuffer)
-                } catch {
-                    NSLog("[MetatronAudio] Write buffer error: \(error)")
-                }
-            }
-        }
-
-        engine.prepare()
-        try engine.start()
-        isRecordingInternal = true
-        return outputURL
+        // Include every input channel. The default remap can discard speech
+        // from the second input of a stereo microphone or audio interface.
+        converter.downmix = true
+        return converter
     }
 
-    /// Stops recording and finalizes the audio file
-    public func stopRecording() -> URL? {
-        guard isRecordingInternal else { return nil }
-        isRecordingInternal = false
+    private func makeInputEngine() throws -> (AVAudioEngine, AudioInputDevice, AVAudioFormat) {
+        let microphone = MicrophoneController.shared
+        microphone.refreshDevices()
+        let device = try AudioInputSelection.resolve(
+            selectedUID: microphone.selectedInputUID,
+            devices: microphone.availableInputs,
+            systemDefaultID: microphone.systemDefaultID
+        )
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        guard let unit = input.audioUnit else { throw MicrophoneError.cannotSelectDevice }
+        // A redundant device assignment can itself enqueue a configuration
+        // notification after startup. Leave an already-correct input alone.
+        if Self.currentDeviceID(unit) != device.id {
+            var id = AudioDeviceID(device.id)
+            guard AudioUnitSetProperty(
+                unit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &id,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
+            ) == noErr else { throw MicrophoneError.cannotSelectDevice }
+        }
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw MicrophoneError.invalidFormat }
+        return (engine, device, format)
+    }
 
+    private static func currentDeviceID(_ unit: AudioUnit) -> AudioDeviceID? {
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        guard AudioUnitGetProperty(
+            unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global,
+            0, &id, &size
+        ) == noErr, id != kAudioObjectUnknown else { return nil }
+        return id
+    }
+
+    /// A configuration notification also occurs while Core Audio finishes
+    /// starting a healthy input. Abort only when capture cannot safely continue
+    /// with the same device and the format installed on its tap/converter.
+    static func configurationAction(
+        expectedDevice: AudioInputDevice,
+        currentDeviceID: UInt32?,
+        availableDevices: [AudioInputDevice],
+        expectedFormat: AVAudioFormat,
+        currentFormat: AVAudioFormat,
+        isRunning: Bool
+    ) -> AudioCaptureConfigurationAction {
+        guard currentDeviceID == expectedDevice.id,
+              availableDevices.contains(where: { $0.id == expectedDevice.id && $0.uid == expectedDevice.uid }),
+              expectedFormat.isEqual(currentFormat) else { return .fail }
+        return isRunning ? .unchanged : .restart
+    }
+
+    private func watchConfiguration(
+        _ engine: AVAudioEngine, device: AudioInputDevice, format: AVAudioFormat, token: UUID
+    ) {
+        var attemptedRestart = false
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: .main
+        ) { [weak self, weak engine] _ in
+            guard let self, let engine, self.captureToken == token else { return }
+            let input = engine.inputNode
+            let action = Self.configurationAction(
+                expectedDevice: device,
+                currentDeviceID: input.audioUnit.flatMap(Self.currentDeviceID),
+                availableDevices: AudioInputCatalog.devices(),
+                expectedFormat: format,
+                currentFormat: input.outputFormat(forBus: 0),
+                isRunning: engine.isRunning
+            )
+            switch action {
+            case .unchanged:
+                return
+            case .restart:
+                // Core Audio can stop the engine for a graph update even when
+                // the selected input and PCM format are unchanged. One restart
+                // is safe; a repeated stop is surfaced as an input failure.
+                if !attemptedRestart {
+                    attemptedRestart = true
+                    do {
+                        engine.prepare()
+                        try engine.start()
+                        if engine.isRunning { return }
+                    } catch {
+                        self.reportFailure(error, token: token)
+                        return
+                    }
+                }
+                self.reportFailure(MicrophoneError.disconnected, token: token)
+            case .fail:
+                self.reportFailure(MicrophoneError.disconnected, token: token)
+            }
+        }
+    }
+
+    private func reportFailure(_ error: Error, token: UUID) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.captureToken == token else { return }
+            if self.isRecordingInternal {
+                let url = self.stopRecording()
+                if let callback = self.onRecordingError {
+                    callback(error, url)
+                } else if let url {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            } else if self.isTestingInternal {
+                let callback = self.testFailure
+                self.stopMicrophoneTest()
+                callback?(error)
+            }
+        }
+    }
+
+    private func endCapture() {
+        captureToken = nil
+        captureGate?.close()
+        captureGate = nil
+        if let observer = configurationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            configurationObserver = nil
+        }
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine?.stop()
         audioEngine = nil
-        audioFile = nil
-
-        let url = tempFileURL
-        return url
     }
 
-    /// Calculates a normalized [0.0 ... 1.0] audio level for the visualizer
-    private func calculateAudioLevel(buffer: AVAudioPCMBuffer) -> Float {
-        guard let channelData = buffer.floatChannelData?[0] else { return 0.0 }
-        let frames = buffer.frameLength
-        if frames == 0 { return 0.0 }
+    private static func calculateAudioLevel(buffer: AVAudioPCMBuffer) -> Float {
+        guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return 0 }
+        // A multi-channel interface may have speech on a channel other than 1.
+        var peakRMS: Float = 0
+        for channel in 0..<Int(buffer.format.channelCount) {
+            var rms: Float = 0
+            if buffer.format.isInterleaved {
+                vDSP_rmsqv(
+                    channels[0].advanced(by: channel),
+                    vDSP_Stride(buffer.format.channelCount),
+                    &rms,
+                    vDSP_Length(buffer.frameLength)
+                )
+            } else {
+                vDSP_rmsqv(channels[channel], 1, &rms, vDSP_Length(buffer.frameLength))
+            }
+            peakRMS = max(peakRMS, rms)
+        }
+        let db = 20 * log10(max(peakRMS, 0.00001))
+        return (max(-50, min(0, db)) + 50) / 50
+    }
+}
 
-        var rms: Float = 0.0
-        vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frames))
+/// Closing the gate waits for any in-flight buffer write and prevents further
+/// tap work, so the WAV is complete before stopRecording returns its URL.
+private final class CaptureGate {
+    private let lock = NSLock()
+    private var active = true
 
-        // Convert RMS to decibels and normalize
-        let minDb: Float = -50.0
-        let maxDb: Float = 0.0
-        let db = 20.0 * log10(max(rms, 0.00001))
-        let clamped = max(minDb, min(maxDb, db))
-        let normalized = (clamped - minDb) / (maxDb - minDb)
+    func performWhileActive(_ capture: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard active else { return }
+        capture()
+    }
 
-        return normalized
+    func close() {
+        lock.lock()
+        active = false
+        lock.unlock()
     }
 }

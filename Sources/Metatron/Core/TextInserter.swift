@@ -13,6 +13,11 @@ public final class TextInserter {
 
     private init() {}
 
+    private func logDuration(_ stage: String, since started: TimeInterval) {
+        let milliseconds = (ProcessInfo.processInfo.systemUptime - started) * 1_000
+        NSLog("[Metatron] Insertion timing %@=%.1fms", stage, milliseconds)
+    }
+
     private struct SavedPasteboardItem {
         let types: [NSPasteboard.PasteboardType]
         let dataByType: [NSPasteboard.PasteboardType: Data]
@@ -56,7 +61,7 @@ public final class TextInserter {
         }
     }
 
-    /// Inserts text directly into the active application wherever the cursor is located.
+    /// Inserts text into the application and control focused at the time of this call.
     ///
     /// - Parameters:
     ///   - text: The text to insert.
@@ -70,15 +75,43 @@ public final class TextInserter {
         keepOnClipboard: Bool = false,
         completion: (() -> Void)? = nil
     ) {
-        guard !text.isEmpty else {
+        insertText(text, keepOnClipboard: keepOnClipboard, target: InsertionTarget.capture(), completion: { _ in
             completion?()
-            return
+        })
+    }
+
+    /// Queues a paste only while the original dictation destination is still focused.
+    /// A nil target fails closed. `shouldInsert` can invalidate a cancelled recording
+    /// immediately before dispatch. Completion reports whether Cmd+V was dispatched.
+    /// The return value reports whether an insertion was queued, not whether it finished.
+    @discardableResult
+    public func insertText(
+        _ text: String,
+        keepOnClipboard: Bool = false,
+        target: InsertionTarget?,
+        shouldInsert: (() -> Bool)? = nil,
+        completion: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        let insertionStarted = ProcessInfo.processInfo.systemUptime
+        let initialCheckStarted = ProcessInfo.processInfo.systemUptime
+        let targetIsCurrent = target?.isCurrent == true
+        let canInsert = !text.isEmpty && targetIsCurrent && shouldInsert?() != false
+        logDuration("initial_focus", since: initialCheckStarted)
+        guard canInsert else {
+            logDuration("total", since: insertionStarted)
+            completion?(false)
+            return false
         }
 
         let pasteboard = NSPasteboard.general
         let shouldRestore = !keepOnClipboard
-        let previousSnapshot = shouldRestore ? snapshotPasteboard() : []
+        // Even when copying is enabled, an aborted paste must not replace the user's
+        // clipboard. A successful paste preserves the existing keep-on-clipboard policy.
+        let snapshotStarted = ProcessInfo.processInfo.systemUptime
+        let previousSnapshot = snapshotPasteboard()
+        logDuration("clipboard_snapshot", since: snapshotStarted)
 
+        let writeStarted = ProcessInfo.processInfo.systemUptime
         pasteboard.clearContents()
         let item = NSPasteboardItem()
         item.setString(text, forType: .string)
@@ -93,24 +126,49 @@ public final class TextInserter {
 
         pasteboard.writeObjects([item])
         let changeCountAfterWrite = pasteboard.changeCount
+        logDuration("clipboard_write", since: writeStarted)
 
         // Wait 25ms for the macOS pasteboard server to register the new item before sending Cmd+V
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) {
+            let finalCheckStarted = ProcessInfo.processInfo.systemUptime
+            let currentCheck = target?.isCurrent == true
+            self.logDuration("final_focus", since: finalCheckStarted)
+            guard currentCheck,
+                  shouldInsert?() != false,
+                  pasteboard.changeCount == changeCountAfterWrite else {
+                // Do not overwrite anything the user copied during the delay.
+                let restoreStarted = ProcessInfo.processInfo.systemUptime
+                if pasteboard.changeCount == changeCountAfterWrite {
+                    self.restorePasteboard(from: previousSnapshot)
+                }
+                self.logDuration("abort_restore", since: restoreStarted)
+                self.logDuration("total", since: insertionStarted)
+                completion?(false)
+                return
+            }
+            let pasteStarted = ProcessInfo.processInfo.systemUptime
             self.sendPasteKeystroke()
+            self.logDuration("paste_dispatch", since: pasteStarted)
+            self.logDuration("time_to_paste", since: insertionStarted)
 
             if shouldRestore {
                 // Allow the target application 180ms to read from the pasteboard, then restore prior clipboard
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
                     // Safety check: Only restore if the user hasn't copied something else in those 180ms
+                    let restoreStarted = ProcessInfo.processInfo.systemUptime
                     if pasteboard.changeCount == changeCountAfterWrite {
                         self.restorePasteboard(from: previousSnapshot)
                     }
-                    completion?()
+                    self.logDuration("clipboard_restore", since: restoreStarted)
+                    self.logDuration("total", since: insertionStarted)
+                    completion?(true)
                 }
             } else {
-                completion?()
+                self.logDuration("total", since: insertionStarted)
+                completion?(true)
             }
         }
+        return true
     }
 
     /// Synthesizes Command + V keypress events into the focused application

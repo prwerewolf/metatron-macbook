@@ -42,6 +42,8 @@ public final class AppState: ObservableObject {
     @Published public var currentAudioLevel: Float = 0.0
     @Published public var statusMessage: String = "Ready"
     @Published public var lastTranscribedText: String = ""
+    @Published public var hasPendingInsertion: Bool = false
+    @Published public var engineStatus = LocalEngineStatus(phase: .loading, message: "Loading local speech model…")
 
     // MARK: - History & Privacy
     @Published public var history: [DictationItem] = []
@@ -93,12 +95,6 @@ public final class AppState: ObservableObject {
         }
     }
 
-    @Published public var speechEngineType: SpeechEngineType = .localMLX {
-        didSet {
-            UserDefaults.standard.set(speechEngineType.rawValue, forKey: "metatron_engine")
-        }
-    }
-
     @Published public var isSoundEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(isSoundEnabled, forKey: "metatron_sound")
@@ -113,22 +109,14 @@ public final class AppState: ObservableObject {
         }
     }
 
-    @Published public var groqApiKey: String = "" {
-        didSet {
-            UserDefaults.standard.set(groqApiKey, forKey: "metatron_groq_key")
-            CloudEngine.shared.groqApiKey = groqApiKey
-        }
-    }
-
-    @Published public var openAIApiKey: String = "" {
-        didSet {
-            UserDefaults.standard.set(openAIApiKey, forKey: "metatron_openai_key")
-            CloudEngine.shared.openAIApiKey = openAIApiKey
-        }
-    }
-
     private var recordingStartTime: Date?
     private var activeAudioURL: URL?
+    private var feedbackResetTask: Task<Void, Never>?
+    private var transcriptionTask: Task<Void, Never>?
+    private var transcriptionID: UUID?
+    private var processingAudioURL: URL?
+    private var insertionTarget: InsertionTarget?
+    private var isRefreshingEngine = false
 
     private init() {
         loadSettings()
@@ -174,9 +162,9 @@ public final class AppState: ObservableObject {
             self.transcriptionStyle = style
         }
 
-        if let rawEngine = UserDefaults.standard.string(forKey: "metatron_engine"),
-           let engine = SpeechEngineType(rawValue: rawEngine) {
-            self.speechEngineType = engine
+        // Retire settings from older builds that offered cloud transcription.
+        for key in ["metatron_engine", "metatron_groq_key", "metatron_openai_key"] {
+            UserDefaults.standard.removeObject(forKey: key)
         }
 
         if UserDefaults.standard.object(forKey: "metatron_sound") != nil {
@@ -184,8 +172,6 @@ public final class AppState: ObservableObject {
         }
 
         self.customVocabularyText = UserDefaults.standard.string(forKey: "metatron_vocab") ?? ""
-        self.groqApiKey = UserDefaults.standard.string(forKey: "metatron_groq_key") ?? ""
-        self.openAIApiKey = UserDefaults.standard.string(forKey: "metatron_openai_key") ?? ""
 
         updateCustomVocabulary()
     }
@@ -194,6 +180,13 @@ public final class AppState: ObservableObject {
         AudioRecorder.shared.onAudioLevel = { [weak self] level in
             guard let self = self, self.isRecording else { return }
             self.currentAudioLevel = level
+        }
+        AudioRecorder.shared.onRecordingError = { [weak self] error, url in
+            guard let self = self else { return }
+            self.cancelDictation(showFeedback: false)
+            if let url { try? FileManager.default.removeItem(at: url) }
+            self.statusMessage = error.localizedDescription
+            SoundEffects.shared.playError()
         }
     }
 
@@ -218,6 +211,11 @@ public final class AppState: ObservableObject {
                 self?.toggleRecording()
             }
         }
+        HotkeyManager.shared.onCancel = { [weak self] in
+            Task { @MainActor in
+                self?.cancelDictation()
+            }
+        }
     }
 
     private func updateCustomVocabulary() {
@@ -230,6 +228,18 @@ public final class AppState: ObservableObject {
 
     // MARK: - Actions
 
+    public func refreshEngineStatus() async {
+        guard !isRefreshingEngine else { return }
+        isRefreshingEngine = true
+        defer { isRefreshingEngine = false }
+        let previous = engineStatus
+        engineStatus = await LocalDaemonClient.shared.engineStatus()
+        if !isRecording, !isProcessing, !showSuccess,
+           statusMessage == previous.message {
+            statusMessage = "Ready"
+        }
+    }
+
     public func toggleRecording() {
         if isRecording {
             stopRecordingAndTranscribe()
@@ -240,9 +250,20 @@ public final class AppState: ObservableObject {
 
     public func startRecording() {
         guard !isRecording, !isProcessing else { return }
+        clearFeedback()
+        guard engineStatus.phase == .ready else {
+            statusMessage = engineStatus.message
+            return
+        }
 
         do {
+            let captureStartedAt = ProcessInfo.processInfo.systemUptime
+            let target = InsertionTarget.capture()
+            NSLog("[Metatron Timing] capture_focus=%.3fs", ProcessInfo.processInfo.systemUptime - captureStartedAt)
+            let audioStartedAt = ProcessInfo.processInfo.systemUptime
             let url = try AudioRecorder.shared.startRecording()
+            NSLog("[Metatron Timing] start_audio=%.3fs", ProcessInfo.processInfo.systemUptime - audioStartedAt)
+            self.insertionTarget = target
             self.activeAudioURL = url
             self.isRecording = true
             self.recordingStartTime = Date()
@@ -250,13 +271,16 @@ public final class AppState: ObservableObject {
             SoundEffects.shared.playStart()
         } catch {
             NSLog("[Metatron] Failed to start audio recording: \(error)")
-            self.statusMessage = "Mic Error"
+            self.statusMessage = error.localizedDescription
             SoundEffects.shared.playError()
+            self.scheduleFeedbackReset(after: 3_000_000_000)
         }
     }
 
     public func stopRecordingAndTranscribe() {
         guard isRecording else { return }
+        let pipelineStartedAt = ProcessInfo.processInfo.systemUptime
+        clearFeedback()
         self.isRecording = false
         self.isProcessing = true
         self.statusMessage = "Transcribing..."
@@ -264,35 +288,75 @@ public final class AppState: ObservableObject {
         SoundEffects.shared.playStop()
 
         let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
+        NSLog("[Metatron Timing] stop_audio=%.3fs", ProcessInfo.processInfo.systemUptime - pipelineStartedAt)
         let duration = Date().timeIntervalSince(recordingStartTime ?? Date())
+        let target = insertionTarget
+        let vocabulary = TextCleaner.shared.customVocabulary
+        let style = transcriptionStyle
+        let requestID = UUID()
+        transcriptionID = requestID
+        processingAudioURL = audioURL
+        activeAudioURL = nil
+        recordingStartTime = nil
+        insertionTarget = nil
 
-        Task {
+        transcriptionTask = Task {
+            defer {
+                NSLog("[Metatron Timing] release_to_completion=%.3fs cancelled=%d", ProcessInfo.processInfo.systemUptime - pipelineStartedAt, Task.isCancelled ? 1 : 0)
+                // Release the recording as soon as processing finishes, independently of feedback.
+                if let url = audioURL, FileManager.default.fileExists(atPath: url.path) {
+                    try? FileManager.default.removeItem(at: url)
+                }
+                if self.transcriptionID == requestID {
+                    self.isProcessing = false
+                    self.processingAudioURL = nil
+                    self.transcriptionID = nil
+                    self.transcriptionTask = nil
+                }
+            }
+
+            guard self.transcriptionID == requestID, !Task.isCancelled else { return }
             guard let url = audioURL, FileManager.default.fileExists(atPath: url.path) else {
-                self.isProcessing = false
                 self.statusMessage = "No Audio"
+                self.scheduleFeedbackReset(after: 1_200_000_000)
                 return
             }
 
             do {
-                let engine: SpeechEngineProtocol
-                switch speechEngineType {
-                case .localMLX:
-                    engine = LocalDaemonClient.shared
-                case .groq, .openAI:
-                    engine = CloudEngine.shared
-                }
+                let recognitionStartedAt = ProcessInfo.processInfo.systemUptime
+                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: style)
+                NSLog("[Metatron Timing] recognition=%.3fs", ProcessInfo.processInfo.systemUptime - recognitionStartedAt)
+                try Task.checkCancellation()
+                guard self.transcriptionID == requestID else { return }
+                let cleanupStartedAt = ProcessInfo.processInfo.systemUptime
+                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary)
+                NSLog("[Metatron Timing] text_cleanup=%.3fs", ProcessInfo.processInfo.systemUptime - cleanupStartedAt)
 
-                let rawText = try await engine.transcribe(audioFileURL: url)
-                let cleanedText = TextCleaner.shared.clean(text: rawText, style: transcriptionStyle)
-
-                if !cleanedText.isEmpty {
-                    self.lastTranscribedText = cleanedText
+                if !cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    var needsManualInsertion = false
 
                     if self.autoInsertText {
                         let hasAccessibility = HotkeyManager.isAccessibilityGranted()
                         if hasAccessibility {
-                            TextInserter.shared.insertText(cleanedText, keepOnClipboard: self.autoCopyToClipboard)
-                            self.statusMessage = self.autoCopyToClipboard ? "Inserted & Copied!" : "Inserted!"
+                            let effectiveTarget = target ?? InsertionTarget.capture()
+                            let inserted: Bool = await withCheckedContinuation { continuation in
+                                TextInserter.shared.insertText(cleanedText, keepOnClipboard: self.autoCopyToClipboard, target: effectiveTarget, shouldInsert: { [weak self] in
+                                    self?.transcriptionID == requestID
+                                }) { inserted in
+                                    continuation.resume(returning: inserted)
+                                }
+                            }
+                            try Task.checkCancellation()
+                            guard self.transcriptionID == requestID else { return }
+                            if inserted {
+                                self.statusMessage = self.autoCopyToClipboard ? "Inserted & Copied!" : "Inserted!"
+                            } else {
+                                // Always place speech on clipboard if auto-insertion could not complete
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(cleanedText, forType: .string)
+                                needsManualInsertion = true
+                                self.statusMessage = "Focus changed — text copied to clipboard"
+                            }
                         } else {
                             HotkeyManager.requestAccessibilityPermission()
                             NSPasteboard.general.clearContents()
@@ -309,37 +373,82 @@ public final class AppState: ObservableObject {
                         }
                     }
 
+                    self.lastTranscribedText = cleanedText
+                    self.hasPendingInsertion = needsManualInsertion
                     // Visual and audio feedback
-                    self.showSuccess = true
-                    SoundEffects.shared.playSuccess()
+                    self.showSuccess = !self.hasPendingInsertion
+                    if !self.hasPendingInsertion {
+                        SoundEffects.shared.playSuccess()
+                    } else {
+                        SoundEffects.shared.playError()
+                    }
 
                     // Record history according to privacy retention settings
                     self.recordHistory(raw: rawText, cleaned: cleanedText, duration: duration)
 
-                    // Keep success message visible briefly
-                    try? await Task.sleep(nanoseconds: 2_200_000_000)
-                    self.showSuccess = false
-                    self.statusMessage = "Ready"
+                    if !self.hasPendingInsertion {
+                        self.scheduleFeedbackReset(after: 2_200_000_000)
+                    } else {
+                        self.scheduleFeedbackReset(after: 3_500_000_000)
+                    }
                 } else {
                     self.statusMessage = "No Speech Detected"
-                    try? await Task.sleep(nanoseconds: 1_200_000_000)
-                    self.statusMessage = "Ready"
+                    self.scheduleFeedbackReset(after: 1_200_000_000)
                 }
+            } catch is CancellationError {
+                // A canceled request must never insert text or overwrite a newer recording.
             } catch {
+                guard self.transcriptionID == requestID, !Task.isCancelled else { return }
                 NSLog("[Metatron] Transcription error: \(error)")
                 let msg = error.localizedDescription
                 self.statusMessage = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
                 SoundEffects.shared.playError()
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                self.statusMessage = "Ready"
+                self.scheduleFeedbackReset(after: 3_000_000_000)
             }
+        }
+    }
 
-            self.isProcessing = false
+    public func cancelDictation(showFeedback: Bool = true) {
+        guard isRecording || isProcessing else { return }
+        clearFeedback()
+        let recordedURL = isRecording ? AudioRecorder.shared.stopRecording() : nil
+        transcriptionID = nil
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        for url in [recordedURL, activeAudioURL, processingAudioURL].compactMap({ $0 }) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        activeAudioURL = nil
+        processingAudioURL = nil
+        insertionTarget = nil
+        recordingStartTime = nil
+        isRecording = false
+        isProcessing = false
+        currentAudioLevel = 0
+        if showFeedback {
+            statusMessage = "Canceled"
+            scheduleFeedbackReset(after: 1_200_000_000)
+        }
+    }
 
-            // Ephemeral Audio Cleanup: Ensure local temporary audio file is deleted immediately!
-            if let path = audioURL?.path, FileManager.default.fileExists(atPath: path) {
-                try? FileManager.default.removeItem(atPath: path)
+    private func clearFeedback() {
+        feedbackResetTask?.cancel()
+        feedbackResetTask = nil
+        showSuccess = false
+    }
+
+    private func scheduleFeedbackReset(after nanoseconds: UInt64) {
+        feedbackResetTask?.cancel()
+        feedbackResetTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: nanoseconds)
+            } catch {
+                return
             }
+            guard let self = self, !self.isRecording, !self.isProcessing else { return }
+            self.showSuccess = false
+            self.statusMessage = "Ready"
+            self.feedbackResetTask = nil
         }
     }
 
@@ -359,7 +468,7 @@ public final class AppState: ObservableObject {
     private func applyRetentionPolicy() {
         switch historyRetention {
         case .off:
-            history.removeAll()
+            clearHistory()
         case .clearOnQuit:
             // kept in memory, not persisted to disk
             break
@@ -376,22 +485,23 @@ public final class AppState: ObservableObject {
 
     public func clearHistory() {
         history.removeAll()
+        lastTranscribedText = ""
+        hasPendingInsertion = false
+        clearFeedback()
+        if !isRecording && !isProcessing {
+            statusMessage = "Ready"
+        }
     }
 
     public func copyLastDictation() {
         guard !lastTranscribedText.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastTranscribedText, forType: .string)
+        hasPendingInsertion = false
         self.statusMessage = "Copied to Clipboard!"
         self.showSuccess = true
         SoundEffects.shared.playSuccess()
 
-        Task {
-            try? await Task.sleep(nanoseconds: 1_800_000_000)
-            if self.statusMessage == "Copied to Clipboard!" {
-                self.showSuccess = false
-                self.statusMessage = "Ready"
-            }
-        }
+        scheduleFeedbackReset(after: 1_800_000_000)
     }
 }

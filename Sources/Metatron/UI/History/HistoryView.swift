@@ -26,7 +26,7 @@ public struct HistoryView: View {
                     Text("Dictation History")
                         .font(.headline)
                     if appState.historyRetention == .off {
-                        Text("Incognito mode active: transcriptions are not retained.")
+                        Text("Incognito mode active: dictations are not added to history.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
@@ -90,7 +90,7 @@ public struct HistoryView: View {
                         .font(.headline)
                         .foregroundColor(.secondary)
                     Text(appState.historyRetention == .off ?
-                         "Your audio and text are ephemeral and immediately purged after insertion." :
+                         "Session history is off. Copy Last holds your latest result until you purge it or quit." :
                          "Hold down your Fn key and speak to start dictating.")
                         .font(.caption)
                         .foregroundColor(.secondary.opacity(0.8))

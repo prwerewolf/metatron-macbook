@@ -49,12 +49,18 @@ fi
 # 7. Code signing with stable identity (preserves macOS Accessibility / TCC permissions across rebuilds)
 SIGNING_IDENTITY="Metatron Development"
 
-if ! security find-identity -p codesigning | grep -q "\"$SIGNING_IDENTITY\""; then
+has_signing_identity() {
+    security find-identity -p codesigning 2>/dev/null | grep -Fq "\"$SIGNING_IDENTITY\""
+}
+
+# Prefer the persistent identity so macOS recognizes successive builds as the
+# same app. If it cannot be created or imported, retain a usable ad-hoc build
+# instead of failing the packaging step.
+if ! has_signing_identity; then
     echo "Creating persistent local developer certificate '$SIGNING_IDENTITY'..."
     CERT_DIR="$DIR/.build/certs"
-    mkdir -p "$CERT_DIR"
 
-    cat << 'EOF' > "$CERT_DIR/cert.cnf"
+    if mkdir -p "$CERT_DIR" && cat << 'EOF' > "$CERT_DIR/cert.cnf"
 [ req ]
 default_bits = 2048
 prompt = no
@@ -72,25 +78,35 @@ extendedKeyUsage = critical, codeSigning
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid,issuer
 EOF
+    then
 
-    openssl req -new -x509 -days 3650 -nodes -config "$CERT_DIR/cert.cnf" \
-        -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" 2>/dev/null
-
-    openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
-        -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
-        -password pass:metatron -legacy 2>/dev/null || \
-    openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
-        -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
-        -password pass:metatron 2>/dev/null
-
-    security import "$CERT_DIR/cert.p12" -k ~/Library/Keychains/login.keychain-db -P metatron -A
+        if openssl req -new -x509 -days 3650 -nodes -config "$CERT_DIR/cert.cnf" \
+            -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" 2>/dev/null && \
+           { openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
+                -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
+                -password pass:metatron -legacy 2>/dev/null || \
+             openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
+                -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
+                -password pass:metatron 2>/dev/null; } && \
+           security import "$CERT_DIR/cert.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P metatron -A; then
+            if has_signing_identity; then
+                echo "Persistent identity '$SIGNING_IDENTITY' is available."
+            else
+                echo "Warning: '$SIGNING_IDENTITY' was imported but is not usable for codesigning; using ad-hoc signing."
+            fi
+        else
+            echo "Warning: could not create or import '$SIGNING_IDENTITY'; using ad-hoc signing."
+        fi
+    else
+        echo "Warning: could not prepare certificate files for '$SIGNING_IDENTITY'; using ad-hoc signing."
+    fi
 fi
 
-if security find-identity -p codesigning | grep -q "\"$SIGNING_IDENTITY\""; then
+if has_signing_identity; then
     echo "Codesigning bundle with persistent identity '$SIGNING_IDENTITY'..."
     codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
 else
-    echo "Falling back to ad-hoc codesigning..."
+    echo "Codesigning bundle with ad-hoc signature (permissions will not persist across rebuilds)..."
     codesign --force --deep --sign - "$APP_BUNDLE"
 fi
 

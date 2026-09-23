@@ -7,3 +7,6 @@ Metatron.app/
 *.wav
 .DS_Store
 Resources/AppIcon.iconset/
+__pycache__/
+*.pyc
+

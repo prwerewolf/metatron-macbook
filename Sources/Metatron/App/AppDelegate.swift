@@ -3,7 +3,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     public var statusItem: NSStatusItem?
     public var pillPanel: FloatingPillPanel?
 
@@ -23,8 +23,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         // Start global keyboard and modifier listener
         HotkeyManager.shared.startListening()
 
-        // Auto-launch local MLX daemon if local engine selected
-        LocalDaemonClient.shared.ensureDaemonRunning()
+        // All transcription runs through the local MLX daemon.
+        Task { await AppState.shared.refreshEngineStatus() }
 
         // Keep-alive watchdog timer
         startWatchdog()
@@ -36,22 +36,23 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     private func startWatchdog() {
-        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 12.0, repeats: true) { _ in
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
             Task { @MainActor in
-                if AppState.shared.speechEngineType == .localMLX && !LocalDaemonClient.shared.isDaemonRunning() {
-                    NSLog("[Metatron Watchdog] Daemon offline, auto-restarting...")
-                    LocalDaemonClient.shared.ensureDaemonRunning()
-                }
+                self.ensureStatusItemVisible()
+                await AppState.shared.refreshEngineStatus()
             }
         }
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
+        MicrophoneController.shared.endMonitoring()
+        AppState.shared.cancelDictation(showFeedback: false)
         HotkeyManager.shared.stopListening()
         pillPanel?.saveCurrentPosition()
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        ensureStatusItemVisible()
         pillPanel?.orderFront(nil)
         return true
     }
@@ -140,10 +141,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     }
 
     private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let autosaveName = "MetatronMenuBar"
+        // Remove the earlier forced placement once, then let macOS and the user
+        // choose and retain the icon's position normally.
+        let previousPlacementOverride = "metatron_menu_position_seeded_v1"
+        if UserDefaults.standard.bool(forKey: previousPlacementOverride) {
+            UserDefaults.standard.removeObject(forKey: "NSStatusItem Preferred Position \(autosaveName)")
+            UserDefaults.standard.removeObject(forKey: previousPlacementOverride)
+        }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.autosaveName = autosaveName
+        item.isVisible = true
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Metatron")
-            button.imagePosition = .imageOnly
+            let icon = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Metatron")
+            icon?.size = NSSize(width: 18, height: 18)
+            icon?.isTemplate = true
+            button.image = icon
+            if icon == nil { button.title = "M" }
+            button.imagePosition = icon == nil ? .noImage : .imageOnly
+            button.toolTip = "Metatron — Local Dictation"
+            button.setAccessibilityLabel("Metatron")
         }
 
         let menu = NSMenu()
@@ -219,6 +236,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
         menu.delegate = self
         item.menu = menu
         self.statusItem = item
+
+    }
+
+    private func ensureStatusItemVisible() {
+        guard let statusItem else {
+            setupStatusItem()
+            return
+        }
+        if !statusItem.isVisible { statusItem.isVisible = true }
     }
 
     public func menuWillOpen(_ menu: NSMenu) {
@@ -252,19 +278,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate 
     @objc public func openSettings() {
         if settingsWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 540, height: 460),
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false
             )
             window.title = "Metatron Settings"
+            window.delegate = self
             window.center()
             window.contentView = NSHostingView(rootView: SettingsView())
             window.isReleasedWhenClosed = false
             self.settingsWindow = window
         }
         settingsWindow?.makeKeyAndOrderFront(nil)
+        MicrophoneController.shared.beginMonitoring()
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    public func windowWillClose(_ notification: Notification) {
+        if let window = notification.object as? NSWindow, window === settingsWindow {
+            MicrophoneController.shared.endMonitoring()
+        }
     }
 
     @objc public func openHistory() {

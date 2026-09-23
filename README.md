@@ -1,81 +1,48 @@
-# 🎙️ Metatron — The Celestial On-Device Scribe for macOS
+# Metatron — Local Dictation for macOS
 
-> A 1:1 Wispr Flow native clone built specifically for **Apple M4 Max** with **48 GB Unified Memory**.
-> 100% On-Device · Zero Cloud Latency · Zero Subscriptions · Ephemeral Privacy.
+Native push-to-talk dictation for Apple Silicon. Speech recognition, vocabulary hints, and text cleanup run on your Mac. Cloud transcription, model downloads, and online model checks are disabled.
 
----
+## Daily use
 
-## ✨ Features
+1. Wait for the local speech engine to show **Ready** in Settings → Speech Engine.
+2. Hold **Fn / Globe**, speak, and release to transcribe. Alternative hotkeys and toggle mode are available in Settings.
+3. Press **Escape** to discard a recording or cancel a pending dictation.
+4. Text is inserted only if the original app and focused control still own the cursor. If focus changes, your result remains available through **Copy Last Dictation** in the menu bar or the pill's Copy button.
 
-- **Push-to-Talk (`Fn` / Globe Key)**: Hold down the `Fn` (Function) key to speak. Release to instantly clean and paste into whatever app you are using (Slack, Cursor, VS Code, Chrome, Notes, Terminal, etc.).
-- **Floating Pill UI**: A sleek, liquid-glass draggable capsule that lives on your screen. Drag it to the left, right, top, or bottom. It remembers its exact coordinates across restarts and **never** steals focus from active windows.
-- **Real-Time Soundwave**: Dynamic, spring-animated audio bars that dance with your voice in real time as you speak.
-- **"Um" & "Ah" Removal**: Intelligent multi-stage cleaning pipeline that eliminates filler speech (*um, uh, ah, er, like, you know*), stutters (*I-I, the-the*), and false starts.
-- **Private Direct Text Insertion**: Injects text directly at the cursor via macOS Accessibility/keystrokes without touching your clipboard, preventing clipboard monitors, history utilities (Raycast, Maccy), and iCloud Universal Clipboard from capturing your speech.
-- **On-Demand Clipboard Copy**: Explicitly copy your last transcription to your clipboard at any time via the menu bar toolbar up top or the floating pill.
-- **100% Local & Private (Apple Silicon Metal GPU)**: Powered by `mlx-whisper` running locally on your Apple M4 Max GPU and Neural Engine. Audio is processed strictly in RAM and immediately deleted upon transcription.
-- **Incognito Ephemeral Storage by Default**: Audio and transcripts are never stored on disk forever.
-- **Dictation History & Search**: Optional rolling session history with word counts, search, and one-click copy.
-- **Custom Vocabulary**: Easily add specialized names, acronyms, and technical terms in Settings.
-- **Menu Bar Control**: Status item for quick access to styles, engine selection, settings, and permissions.
+The compact pill can be dragged to screen edges and remembers its monitor across restarts. Its waveform shows recording activity; loading and error states have explanatory tooltips.
 
----
+## Settings
 
-## 🚀 Quickstart
+- **Microphone:** Choose the system default or a specific input. The level-meter test runs only while enabled, saves no recording, and stops when Settings closes or dictation begins. An unavailable saved microphone produces a clear error instead of silently switching inputs.
+- **Custom vocabulary:** Comma-separated names and terms guide local recognition. Natural and Professional also apply preferred spelling/capitalization after recognition.
+- **Natural:** Conservative removal of clear hesitations and obvious repetition loops, preserving wording, casing, and literal punctuation words.
+- **Professional:** Natural cleanup plus spoken punctuation (`comma`, `period`, `new line`, `new paragraph`), bullet commands, and sentence capitalization. Choose Natural for literal uses of those command words.
+- **Raw:** The recognizer's output without text cleanup, vocabulary replacements, or formatting. Vocabulary still guides recognition itself.
+- **Clipboard:** Existing transient clipboard markers and automatic restoration are used for insertion. “Keep Speech on System Clipboard” retains copied speech when enabled. If Accessibility is unavailable, the existing copy-to-clipboard fallback remains available.
+- **History:** Session Only is the default. Incognito disables history; rolling limits keep the last 10 or 50 entries in memory. History is not persisted across app restarts.
 
-### Launch Metatron
+Temporary recording files are deleted after processing, cancellation, or capture failure. Audio tests only compute levels in memory. Text deliberately copied or inserted into another application follows that application's own storage/sync behavior.
 
-To build and launch Metatron:
+## Offline model setup
+
+Metatron uses the existing Python environment at `.venv` and already-downloaded MLX Whisper files. The engine loads and warms the actual model before reporting Ready.
+
+The daemon looks in the local Hugging Face cache for `mlx-community/whisper-large-v3-turbo`; an already-cached `mlx-community/whisper-base.en` can serve as a startup fallback. It reads cache directories directly and never calls an online model resolver. Standard `HF_HOME`, `HF_HUB_CACHE`, and `XDG_CACHE_HOME` cache locations are supported.
+
+You can instead set `METATRON_MODEL_DIR` to an existing local model directory containing `config.json` and `weights.safetensors` or `weights.npz` when launching the app/daemon. Missing model files produce an unavailable message; they are never downloaded automatically. Python network sockets and DNS lookups are blocked in the daemon in addition to offline dependency flags.
+
+## Build, test, and launch
 
 ```bash
-cd /path/to/user/Documents/_codeRepos/metatron-macbook
-make run
+make test   # Synthetic/mocked regression tests; no microphone or network access
+make build  # Build and sign Metatron.app
+make run    # Restart the app and local daemon
 ```
 
-Or run the launch script directly:
+`make run` uses the existing app bundle; run `make build` first after changing source. Restart both the app and daemon after an update so they use the same offline protocol.
 
-```bash
-./scripts/run.sh
-```
+## macOS permissions
 
-You can also drag `Metatron.app` directly into your `/Applications` folder.
-
----
-
-## ⌨️ How to Use
-
-1. **Hold to Speak**: Press and hold the **Function (`Fn` / Globe)** key on your keyboard.
-2. **Watch the Pill**: The floating pill expands and the audio waveform bars animate to your voice.
-3. **Speak Naturally**: Include fillers like *"um"*, *"uh"*, and spoken punctuation like *"comma"*, *"period"*, *"new line"*.
-4. **Release to Paste**: Release the `Fn` key. The pill briefly shows *"Transcribing..."*, cleans the text, and pastes it into your focused text area with a subtle confirmation sound.
-
----
-
-## ⚙️ Settings & Configuration
-
-Click the **waveform icon in the macOS menu bar** or right-click the floating pill:
-
-- **Hotkey & Mode**: Switch between `Fn (Hold)`, `Right Option`, `Right Command`, or `Toggle Mode` (tap to start, tap to stop).
-- **Style**:
-  - `Natural`: Direct transcription minus filler words and stutters.
-  - `Professional`: Formatted structure with automatic casing, punctuation, and bullet points.
-  - `Raw`: Verbatim transcription.
-- **Engine**:
-  - `Apple M4 Max Local`: 100% offline, GPU-accelerated local transcription.
-  - `Groq / OpenAI Cloud`: Optional cloud API fallback if desired.
-- **Custom Vocabulary**: Comma-separated custom words and brand names.
-- **Privacy & Retention**:
-  - `Incognito`: Zero persistent storage (default).
-  - `Session Only`: Wiped on app quit.
-  - `Keep Last 10 / 50`: Rolling buffer with one-click purge.
-
----
-
-## 🔒 Permissions & Setup Note
-
-For the optimal experience, macOS requires two permissions:
-1. **Microphone**: Prompted on first launch to allow audio capture.
-2. **Accessibility**: Needed to detect global `Fn` keypresses and synthesize `Cmd+V`.
-   - Open **System Settings → Privacy & Security → Accessibility** and enable `Metatron`.
-3. **Fn / Globe Key System Setting**:
-   - In macOS **System Settings → Keyboard**, set **"Press 🌐 key to:"** to **"Do Nothing"**. This prevents macOS from popping up the system emoji window when holding the `Fn` key.
+- **Microphone:** Needed for dictation and the explicitly started input test.
+- **Accessibility:** Needed for global hotkeys, checking the insertion destination, and pasting into the focused application.
+- In **System Settings → Keyboard**, set **“Press 🌐 key to:” → “Do Nothing”** to prevent the system emoji window from opening when using Fn.

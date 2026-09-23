@@ -1,6 +1,9 @@
-.PHONY: all build run test stop clean
+.PHONY: all setup build run test stop clean
 
 all: build
+
+setup:
+	@./scripts/setup_mac.sh
 
 build:
 	@./scripts/build_app.sh
@@ -9,7 +12,7 @@ run:
 	@./scripts/run.sh
 
 test:
-	@swiftc -parse-as-library Sources/Metatron/Engine/TextCleaner.swift tests/test_cleaner.swift -o /tmp/metatron_test && /tmp/metatron_test
+	@./scripts/test.sh
 
 stop:
 	@pkill -f "Metatron.app/Contents/MacOS/Metatron" 2>/dev/null || true
