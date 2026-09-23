@@ -67,6 +67,18 @@ struct GeneralSettingsTab: View {
             Divider()
 
             Section {
+                Toggle("Launch Metatron at Login", isOn: $appState.launchAtLogin)
+                Text("Automatically start Metatron when you log into this Mac.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("System Startup")
+                    .fontWeight(.semibold)
+            }
+
+            Divider()
+
+            Section {
                 Toggle("Enable Audio Cues (Clicks & Chimes)", isOn: $appState.isSoundEnabled)
             } header: {
                 Text("Feedback")
@@ -98,38 +110,57 @@ struct StyleSettingsTab: View {
     @ObservedObject var appState = AppState.shared
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Transcription Style", selection: $appState.transcriptionStyle) {
-                    ForEach(TranscriptionStyle.allCases) { style in
-                        Text(style.rawValue).tag(style)
+        ScrollView {
+            Form {
+                Section {
+                    Picker("Transcription Style", selection: $appState.transcriptionStyle) {
+                        ForEach(TranscriptionStyle.allCases) { style in
+                            Text(style.rawValue).tag(style)
+                        }
                     }
-                }
-                .pickerStyle(.radioGroup)
+                    .pickerStyle(.radioGroup)
 
-                Text(styleDescription)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 2)
-            } header: {
-                Text("Clean-Up & Formatting")
-                    .fontWeight(.semibold)
-            }
-
-            Divider()
-
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Custom Vocabulary & Acronyms")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    Text("Enter comma-separated names and technical terms to guide local speech recognition. Natural and Professional also preserve their preferred capitalization.")
+                    Text(styleDescription)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextEditor(text: $appState.customVocabularyText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(height: 70)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                        .padding(.top, 2)
+                } header: {
+                    Text("Clean-Up & Formatting")
+                        .fontWeight(.semibold)
+                }
+
+                Divider()
+
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Custom Vocabulary & Acronyms")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text("Enter comma-separated names and technical terms to guide local speech recognition. Natural and Professional also preserve their preferred capitalization.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $appState.customVocabularyText)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(height: 55)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Voice Snippets & Text Replacements")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                        Text("Expand spoken phrases into text or macros. One per line: phrase -> replacement (e.g. my email -> name@example.com).")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $appState.textReplacementsText)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(height: 65)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
+                    }
+                    .padding(.top, 6)
+                } header: {
+                    Text("Vocabulary & Snippets")
+                        .fontWeight(.semibold)
                 }
             }
         }

@@ -185,4 +185,19 @@ public final class TextInserter {
         keyDown?.post(tap: .cghidEventTap)
         keyUp?.post(tap: .cghidEventTap)
     }
+
+    /// Synthesizes Command + Z keypress events into the focused application to undo the previous action
+    public func sendUndoKeystroke() {
+        let zKeyCode: CGKeyCode = 6 // 'z' virtual key code on macOS
+
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: zKeyCode, keyDown: true)
+        keyDown?.flags = .maskCommand
+
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: zKeyCode, keyDown: false)
+        keyUp?.flags = .maskCommand
+
+        keyDown?.post(tap: .cghidEventTap)
+        keyUp?.post(tap: .cghidEventTap)
+    }
 }

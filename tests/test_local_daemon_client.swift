@@ -18,7 +18,7 @@ struct LocalDaemonClientTests {
             "protocol_version": 3, "offline": false, "script_sha256": hash,
         ], scriptHash: hash))
 
-        let repo = "/path/to/user/Documents/_codeRepos/metatron-macbook"
+        let repo = FileManager.default.currentDirectoryPath
         let script = repo + "/daemon/whisper_daemon.py"
         precondition(client.isKnownLegacyLaunch(
             command: ".venv/bin/python3 -u daemon/whisper_daemon.py",

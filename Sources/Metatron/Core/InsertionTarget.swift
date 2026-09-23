@@ -27,6 +27,36 @@ public struct InsertionTarget {
         )
     }
 
+    public var targetPID: pid_t { processID }
+
+    /// Attempts to read the character immediately before the current selection/cursor in the focused element.
+    /// Returns nil if accessibility attributes are unsupported.
+    public func precedingCharacter() -> Character? {
+        guard let element = focusedElement ?? Self.focus(in: applicationElement) else { return nil }
+        var rangeValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let rangeValue,
+              CFGetTypeID(rangeValue) == AXValueGetTypeID() else { return nil }
+
+        let axValue = rangeValue as! AXValue
+        guard AXValueGetType(axValue) == .cfRange else { return nil }
+        var cfRange = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &cfRange), cfRange.location > 0 else { return nil }
+
+        var charRange = CFRange(location: cfRange.location - 1, length: 1)
+        guard let charRangeVal = AXValueCreate(.cfRange, &charRange) else { return nil }
+        var stringVal: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            charRangeVal,
+            &stringVal
+        ) == .success,
+              let string = stringVal as? String,
+              let char = string.first else { return nil }
+        return char
+    }
+
     public var isCurrent: Bool {
         guard let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               currentPID == processID else { return false }

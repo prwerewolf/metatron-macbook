@@ -87,17 +87,28 @@ public final class LocalDaemonClient: SpeechEngineProtocol {
     }
 }
 
+public enum LaunchAtLogin {
+    public static var isEnabled = false
+}
+
 public struct InsertionTarget {
     public static var current = true
+    public static var mockPrecedingChar: Character? = nil
     public static func capture() -> InsertionTarget? { InsertionTarget() }
     public var isCurrent: Bool { Self.current }
+    public var targetPID: pid_t { 123 }
+    public func precedingCharacter() -> Character? { Self.mockPrecedingChar }
 }
 
 public final class TextInserter {
     public static let shared = TextInserter()
     public var pendingCompletion: (() -> Void)?
+    public private(set) var undoCount = 0
     public func insertText(_ text: String, keepOnClipboard: Bool, target: InsertionTarget?, shouldInsert: (() -> Bool)? = nil, completion: ((Bool) -> Void)? = nil) {
         pendingCompletion = { completion?(target?.isCurrent == true && shouldInsert?() != false) }
+    }
+    public func sendUndoKeystroke() {
+        undoCount += 1
     }
 }
 
@@ -124,6 +135,7 @@ struct AppStateTests {
             precondition(UserDefaults.standard.object(forKey: key) == nil, "Legacy cloud settings must be retired")
         }
 
+        state.minRecordingDuration = 0
         state.autoInsertText = false
         state.autoCopyToClipboard = false
         state.startRecording()
@@ -301,6 +313,49 @@ struct AppStateTests {
         precondition(!state.isRecording && !state.isProcessing)
         precondition(state.statusMessage == "Microphone disconnected")
         precondition(!FileManager.default.fileExists(atPath: failedFile.path))
-        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, and unchanged clipboard fallback.")
+
+        // Accidental Click Guard: Stop immediately (< 0.25s) should quietly discard capture without transcribing
+        state.minRecordingDuration = 0.25
+        state.startRecording()
+        precondition(state.isRecording)
+        state.stopRecordingAndTranscribe()
+        precondition(!state.isRecording && !state.isProcessing)
+        precondition(state.statusMessage == "Ready")
+        state.minRecordingDuration = 0
+
+        // Smart Prefix Spacing tests
+        let testTarget = InsertionTarget()
+        InsertionTarget.mockPrecedingChar = nil
+        let now = Date()
+        precondition(AppState.shouldPrependSpace(to: "world", target: testTarget, lastInsertionTime: now, lastInsertionPID: 123, lastInsertedEndsWithWhitespace: false, now: now))
+        precondition(!AppState.shouldPrependSpace(to: ", world", target: testTarget, lastInsertionTime: now, lastInsertionPID: 123, lastInsertedEndsWithWhitespace: false, now: now))
+        precondition(!AppState.shouldPrependSpace(to: "world", target: testTarget, lastInsertionTime: now, lastInsertionPID: 123, lastInsertedEndsWithWhitespace: true, now: now))
+        precondition(!AppState.shouldPrependSpace(to: "world", target: testTarget, lastInsertionTime: now.addingTimeInterval(-60), lastInsertionPID: 123, lastInsertedEndsWithWhitespace: false, now: now))
+
+        // Preceding character via AX
+        InsertionTarget.mockPrecedingChar = "x"
+        precondition(AppState.shouldPrependSpace(to: "hello", target: testTarget, lastInsertionTime: nil, lastInsertionPID: nil, lastInsertedEndsWithWhitespace: false, now: now))
+        InsertionTarget.mockPrecedingChar = " "
+        precondition(!AppState.shouldPrependSpace(to: "hello", target: testTarget, lastInsertionTime: nil, lastInsertionPID: nil, lastInsertedEndsWithWhitespace: false, now: now))
+        InsertionTarget.mockPrecedingChar = nil
+
+        // Voice Undo Command detection
+        precondition(AppState.isUndoCommand("scratch that"))
+        precondition(AppState.isUndoCommand("cancel that."))
+        precondition(AppState.isUndoCommand("undo that"))
+        precondition(AppState.isUndoCommand("actually scratch that"))
+        precondition(!AppState.isUndoCommand("the cat has a scratch that hurts"))
+
+        // Standalone voice undo execution
+        let priorUndos = TextInserter.shared.undoCount
+        engine.result = .success("scratch that")
+        state.startRecording()
+        try await Task.sleep(nanoseconds: 260_000_000) // Sleep past click guard
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { state.statusMessage == "Undone!" }
+        precondition(TextInserter.shared.undoCount == priorUndos + 1)
+        precondition(state.showSuccess)
+
+        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, smart spacing, undo command, click guard, and unchanged clipboard fallback.")
     }
 }

@@ -109,6 +109,22 @@ public final class AppState: ObservableObject {
         }
     }
 
+    @Published public var textReplacementsText: String = "" {
+        didSet {
+            UserDefaults.standard.set(textReplacementsText, forKey: "metatron_replacements")
+            updateTextReplacements()
+        }
+    }
+
+    @Published public var launchAtLogin: Bool = false {
+        didSet {
+            LaunchAtLogin.isEnabled = launchAtLogin
+        }
+    }
+
+    /// Recordings shorter than this threshold are discarded quietly as accidental clicks.
+    public var minRecordingDuration: Double = 0.25
+
     private var recordingStartTime: Date?
     private var activeAudioURL: URL?
     private var feedbackResetTask: Task<Void, Never>?
@@ -117,6 +133,9 @@ public final class AppState: ObservableObject {
     private var processingAudioURL: URL?
     private var insertionTarget: InsertionTarget?
     private var isRefreshingEngine = false
+    private var lastInsertionTime: Date?
+    private var lastInsertionPID: pid_t?
+    private var lastInsertedEndsWithWhitespace: Bool = false
 
     private init() {
         loadSettings()
@@ -171,9 +190,12 @@ public final class AppState: ObservableObject {
             self.isSoundEnabled = UserDefaults.standard.bool(forKey: "metatron_sound")
         }
 
+        self.launchAtLogin = LaunchAtLogin.isEnabled
         self.customVocabularyText = UserDefaults.standard.string(forKey: "metatron_vocab") ?? ""
+        self.textReplacementsText = UserDefaults.standard.string(forKey: "metatron_replacements") ?? ""
 
         updateCustomVocabulary()
+        updateTextReplacements()
     }
 
     private func setupAudioLevelCallback() {
@@ -224,6 +246,53 @@ public final class AppState: ObservableObject {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         TextCleaner.shared.customVocabulary = terms
+    }
+
+    private func updateTextReplacements() {
+        TextCleaner.shared.customReplacements = TextCleaner.parseReplacements(from: textReplacementsText)
+    }
+
+    public static func isUndoCommand(_ text: String) -> Bool {
+        return TextCleaner.isStandaloneUndoCommand(text)
+    }
+
+    public static func shouldPrependSpace(
+        to newText: String,
+        target: InsertionTarget?,
+        lastInsertionTime: Date?,
+        lastInsertionPID: pid_t?,
+        lastInsertedEndsWithWhitespace: Bool,
+        now: Date = Date()
+    ) -> Bool {
+        let trimmed = newText.trimmingCharacters(in: .whitespaces)
+        guard let firstChar = trimmed.first else { return false }
+
+        // Never prepend a space before punctuation, quotes, brackets, or newlines
+        let noLeadingSpaceCharacters = CharacterSet(charactersIn: ".,!?;:)]}'\"”\n•-")
+        if let scalar = firstChar.unicodeScalars.first, noLeadingSpaceCharacters.contains(scalar) {
+            return false
+        }
+
+        // 1. If AX can inspect the preceding character directly at the cursor:
+        if let target, let preceding = target.precedingCharacter() {
+            let whitespaceOrOpening = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "([{“\"'\n\t"))
+            if let scalar = preceding.unicodeScalars.first, whitespaceOrOpening.contains(scalar) {
+                return false
+            }
+            return true
+        }
+
+        // 2. Fallback: Consecutive dictation in the same app within 45 seconds
+        if let lastTime = lastInsertionTime,
+           let lastPID = lastInsertionPID,
+           let currentPID = target?.targetPID,
+           lastPID == currentPID,
+           now.timeIntervalSince(lastTime) < 45.0,
+           !lastInsertedEndsWithWhitespace {
+            return true
+        }
+
+        return false
     }
 
     // MARK: - Actions
@@ -280,6 +349,25 @@ public final class AppState: ObservableObject {
     public func stopRecordingAndTranscribe() {
         guard isRecording else { return }
         let pipelineStartedAt = ProcessInfo.processInfo.systemUptime
+        let duration = Date().timeIntervalSince(recordingStartTime ?? Date())
+
+        // Accidental Click Guard: Silently discard clicks shorter than minRecordingDuration (default 0.25s)
+        if minRecordingDuration > 0 && duration < minRecordingDuration {
+            let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
+            if let audioURL, FileManager.default.fileExists(atPath: audioURL.path) {
+                try? FileManager.default.removeItem(at: audioURL)
+            }
+            activeAudioURL = nil
+            recordingStartTime = nil
+            insertionTarget = nil
+            self.isRecording = false
+            self.isProcessing = false
+            self.currentAudioLevel = 0.0
+            clearFeedback()
+            self.statusMessage = "Ready"
+            return
+        }
+
         clearFeedback()
         self.isRecording = false
         self.isProcessing = true
@@ -289,9 +377,9 @@ public final class AppState: ObservableObject {
 
         let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
         NSLog("[Metatron Timing] stop_audio=%.3fs", ProcessInfo.processInfo.systemUptime - pipelineStartedAt)
-        let duration = Date().timeIntervalSince(recordingStartTime ?? Date())
         let target = insertionTarget
         let vocabulary = TextCleaner.shared.customVocabulary
+        let replacements = TextCleaner.shared.customReplacements
         let style = transcriptionStyle
         let requestID = UUID()
         transcriptionID = requestID
@@ -329,18 +417,42 @@ public final class AppState: ObservableObject {
                 try Task.checkCancellation()
                 guard self.transcriptionID == requestID else { return }
                 let cleanupStartedAt = ProcessInfo.processInfo.systemUptime
-                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary)
+                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary, replacements: replacements)
                 NSLog("[Metatron Timing] text_cleanup=%.3fs", ProcessInfo.processInfo.systemUptime - cleanupStartedAt)
+
+                // Standalone Voice Undo: "scratch that", "cancel that", "undo that"
+                if Self.isUndoCommand(cleanedText) {
+                    if HotkeyManager.isAccessibilityGranted() {
+                        TextInserter.shared.sendUndoKeystroke()
+                    }
+                    self.statusMessage = "Undone!"
+                    self.showSuccess = true
+                    SoundEffects.shared.playSuccess()
+                    self.scheduleFeedbackReset(after: 1_800_000_000)
+                    return
+                }
 
                 if !cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     var needsManualInsertion = false
 
+                    // Smart Prefix Spacing: prepend space if following a prior insertion in same target
+                    var textToInsert = cleanedText
+                    let effectiveTarget = target ?? InsertionTarget.capture()
+                    if self.autoInsertText && Self.shouldPrependSpace(
+                        to: textToInsert,
+                        target: effectiveTarget,
+                        lastInsertionTime: self.lastInsertionTime,
+                        lastInsertionPID: self.lastInsertionPID,
+                        lastInsertedEndsWithWhitespace: self.lastInsertedEndsWithWhitespace
+                    ) {
+                        textToInsert = " " + textToInsert
+                    }
+
                     if self.autoInsertText {
                         let hasAccessibility = HotkeyManager.isAccessibilityGranted()
                         if hasAccessibility {
-                            let effectiveTarget = target ?? InsertionTarget.capture()
                             let inserted: Bool = await withCheckedContinuation { continuation in
-                                TextInserter.shared.insertText(cleanedText, keepOnClipboard: self.autoCopyToClipboard, target: effectiveTarget, shouldInsert: { [weak self] in
+                                TextInserter.shared.insertText(textToInsert, keepOnClipboard: self.autoCopyToClipboard, target: effectiveTarget, shouldInsert: { [weak self] in
                                     self?.transcriptionID == requestID
                                 }) { inserted in
                                     continuation.resume(returning: inserted)
@@ -350,6 +462,9 @@ public final class AppState: ObservableObject {
                             guard self.transcriptionID == requestID else { return }
                             if inserted {
                                 self.statusMessage = self.autoCopyToClipboard ? "Inserted & Copied!" : "Inserted!"
+                                self.lastInsertionTime = Date()
+                                self.lastInsertionPID = effectiveTarget?.targetPID
+                                self.lastInsertedEndsWithWhitespace = textToInsert.hasSuffix(" ") || textToInsert.hasSuffix("\n")
                             } else {
                                 // Always place speech on clipboard if auto-insertion could not complete
                                 NSPasteboard.general.clearContents()
@@ -487,6 +602,9 @@ public final class AppState: ObservableObject {
         history.removeAll()
         lastTranscribedText = ""
         hasPendingInsertion = false
+        lastInsertionTime = nil
+        lastInsertionPID = nil
+        lastInsertedEndsWithWhitespace = false
         clearFeedback()
         if !isRecording && !isProcessing {
             statusMessage = "Ready"

@@ -269,9 +269,10 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         let bundleParent = Bundle.main.bundleURL.deletingLastPathComponent().standardizedFileURL.path
         let repository = workingDirectory ?? bundleParent
         let hasRelativeArgument = !arguments[0].hasPrefix("/") || !arguments[2].hasPrefix("/")
+        let scriptRepo = URL(fileURLWithPath: script).deletingLastPathComponent().deletingLastPathComponent().standardizedFileURL.path
         let validWorkingDirs = Set([
             bundleParent,
-            "/path/to/user/Documents/_codeRepos/metatron-macbook",
+            scriptRepo,
             URL(fileURLWithPath: FileManager.default.currentDirectoryPath).standardizedFileURL.path
         ])
         if hasRelativeArgument && (workingDirectory == nil || !validWorkingDirs.contains(URL(fileURLWithPath: workingDirectory!).standardizedFileURL.path)) { return false }

@@ -174,8 +174,46 @@ struct TestRunner {
         assert(cleaner.clean(text: "hello comma world period new paragraph bullet one first task bullet two second task period", style: .professional) == "Hello, world.\n\n• First task\n• Second task.", "Test 11 Failed: explicit command chain was not formatted")
         print("Test 11 (Professional Command Context): ✓ PASSED\n")
 
+        // Test 12: Custom Text Replacements / Snippet Macros
+        let sampleReplacements = """
+        my email -> test@example.com
+        cal link => https://example.com/calendar
+        shrug = ¯\\_(ツ)_/¯
+        """
+        let parsed = TextCleaner.parseReplacements(from: sampleReplacements)
+        assert(parsed.count == 3, "Test 12 Failed: did not parse 3 replacements")
+        cleaner.customReplacements = parsed
+
+        let repInput = "please send an email to my email period"
+        assert(cleaner.clean(text: repInput, style: .professional) == "Please send an email to test@example.com.", "Test 12 Failed: snippet replacement not applied: \(cleaner.clean(text: repInput, style: .professional))")
+        assert(cleaner.clean(text: "here is my cal link", style: .natural) == "here is my https://example.com/calendar", "Test 12 Failed: snippet replacement not applied in natural")
+        assert(cleaner.clean(text: repInput, style: .raw) == repInput, "Test 12 Failed: raw applied snippet replacements")
+        cleaner.customReplacements = []
+        print("Test 12 (Custom Text Replacements / Snippets): ✓ PASSED\n")
+
+        // Test 13: "Scratch That" / Mid-utterance voice correction
+        let scratch1 = "meeting at four, scratch that, five"
+        assert(cleaner.clean(text: scratch1, style: .natural) == "meeting at five", "Test 13 Failed: scratch that word correction: '\(cleaner.clean(text: scratch1, style: .natural))'")
+
+        let scratch2 = "send to Alice, scratch that, send to Bob"
+        assert(cleaner.clean(text: scratch2, style: .natural) == "send to Bob", "Test 13 Failed: scratch that phrase repetition: '\(cleaner.clean(text: scratch2, style: .natural))'")
+
+        let scratch3 = "we need red, cancel that, green"
+        assert(cleaner.clean(text: scratch3, style: .natural) == "we need green", "Test 13 Failed: cancel that correction: '\(cleaner.clean(text: scratch3, style: .natural))'")
+
+        let nounPreserve = "The cat has a scratch that hurts."
+        assert(cleaner.clean(text: nounPreserve, style: .natural) == nounPreserve, "Test 13 Failed: noun 'a scratch that' was stripped")
+
+        let standaloneUndo = "scratch that"
+        assert(cleaner.clean(text: standaloneUndo, style: .natural) == "scratch that", "Test 13 Failed: standalone scratch that should be preserved for undo")
+        assert(TextCleaner.isStandaloneUndoCommand("scratch that"))
+        assert(TextCleaner.isStandaloneUndoCommand("cancel that."))
+        assert(TextCleaner.isStandaloneUndoCommand("undo that"))
+        assert(!TextCleaner.isStandaloneUndoCommand(nounPreserve))
+        print("Test 13 (Scratch That Voice Correction): ✓ PASSED\n")
+
         print("==================================================")
-        print("  All Metatron TextCleaner Tests PASSED! (11/11)")
+        print("  All Metatron TextCleaner Tests PASSED! (13/13)")
         print("==================================================")
     }
 }

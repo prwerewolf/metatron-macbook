@@ -13,8 +13,12 @@ The compact pill can be dragged to screen edges and remembers its monitor across
 
 ## Settings
 
+- **Launch at Login:** Option in Settings → General to start Metatron automatically on macOS login via `SMAppService`.
 - **Microphone:** Choose the system default or a specific input. The level-meter test runs only while enabled, saves no recording, and stops when Settings closes or dictation begins. An unavailable saved microphone produces a clear error instead of silently switching inputs.
-- **Custom vocabulary:** Comma-separated names and terms guide local recognition. Natural and Professional also apply preferred spelling/capitalization after recognition.
+- **Custom vocabulary & Text Replacements:** Comma-separated vocabulary terms guide local recognition. The Text Replacements editor in Settings → Style allows defining voice snippet macros (`phrase -> replacement` or `phrase = replacement`, e.g., `my email -> test@example.com`).
+- **Voice Correction & Undo ("Scratch That"):** Mid-sentence corrections like *"meeting at four, scratch that, five"* replace the abandoned phrase. Speaking *"scratch that"*, *"cancel that"*, or *"undo that"* as a standalone utterance triggers a native `Cmd+Z` undo keystroke with visual feedback on the pill.
+- **Smart Prefix Spacing:** Consecutive dictations into the same app/control automatically prepend a space, using accessibility cursor inspection with a 45-second fallback for smooth multi-sentence dictation.
+- **Accidental Click Guard:** Hotkey presses shorter than 0.25 seconds are silently discarded without transcription or error chimes.
 - **Natural:** Conservative removal of clear hesitations and obvious repetition loops, preserving wording, casing, and literal punctuation words.
 - **Professional:** Natural cleanup plus spoken punctuation (`comma`, `period`, `new line`, `new paragraph`), bullet commands, and sentence capitalization. Choose Natural for literal uses of those command words.
 - **Raw:** The recognizer's output without text cleanup, vocabulary replacements, or formatting. Vocabulary still guides recognition itself.

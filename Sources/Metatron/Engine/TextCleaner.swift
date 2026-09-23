@@ -8,21 +8,38 @@ public enum TranscriptionStyle: String, CaseIterable, Identifiable, Codable, Sen
     public var id: String { rawValue }
 }
 
+public struct TextReplacement: Equatable, Sendable {
+    public let phrase: String
+    public let replacement: String
+
+    public init(phrase: String, replacement: String) {
+        self.phrase = phrase
+        self.replacement = replacement
+    }
+}
+
 public final class TextCleaner {
     public static let shared = TextCleaner()
 
     public var customVocabulary: [String] = []
+    public var customReplacements: [TextReplacement] = []
 
     private init() {}
 
     /// Raw preserves the exact recognizer output, including whitespace. Natural
     /// removes clear disfluencies; Professional additionally interprets formatting commands.
-    public func clean(text: String, style: TranscriptionStyle = .natural, vocabulary: [String]? = nil) -> String {
+    public func clean(
+        text: String,
+        style: TranscriptionStyle = .natural,
+        vocabulary: [String]? = nil,
+        replacements: [TextReplacement]? = nil
+    ) -> String {
         if style == .raw { return text }
 
         var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.isEmpty { return "" }
 
+        result = cleanScratchThatPhrases(result)
         result = removeFillerWords(result)
         result = deduplicateStutters(result)
         result = deduplicateRepetitivePhrases(result)
@@ -39,7 +56,8 @@ public final class TextCleaner {
         }
 
         // Apply last so preferred casing such as "macOS" wins over sentence casing.
-        return applyCustomVocabulary(result, terms: vocabulary ?? customVocabulary)
+        result = applyCustomVocabulary(result, terms: vocabulary ?? customVocabulary)
+        return applyTextReplacements(result, replacements: replacements ?? customReplacements)
     }
 
     /// Remove only unambiguous interjections. Preserve meaningful phrases, acronyms
@@ -306,6 +324,139 @@ public final class TextCleaner {
             let pattern = "(?<!\\w)" + NSRegularExpression.escapedPattern(for: trimmed) + "(?!\\w)"
             if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
                 str = regex.stringByReplacingMatches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count), withTemplate: NSRegularExpression.escapedTemplate(for: trimmed))
+            }
+        }
+        return str
+    }
+
+    /// Checks if the text is a standalone undo/cancel command intended to trigger an undo keystroke
+    public static func isStandaloneUndoCommand(_ text: String) -> Bool {
+        let cleaned = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?:;,")))
+        let lower = cleaned.lowercased()
+        return lower == "scratch that" ||
+               lower == "cancel that" ||
+               lower == "undo that" ||
+               lower == "undo" ||
+               lower == "actually scratch that" ||
+               lower == "scratch that please" ||
+               lower == "cancel that please"
+    }
+
+    /// Mid-utterance voice correction:
+    /// e.g. "meeting at four, scratch that, five" -> "meeting at five"
+    /// e.g. "send to Alice, scratch that, send to Bob" -> "send to Bob"
+    /// e.g. "we need five, scratch that, six servers" -> "we need six servers"
+    private func cleanScratchThatPhrases(_ text: String) -> String {
+        // If the entire utterance is a standalone voice undo command, preserve it so AppState can execute Cmd+Z
+        if Self.isStandaloneUndoCommand(text) {
+            return text
+        }
+
+        var str = text
+        let pattern = "(?:,\\s*)?(?:\\b(?:actually|no|wait)\\s+)?\\b(?:scratch|cancel|undo)\\s+that\\b[.,;]?"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return text
+        }
+
+        let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+        for match in matches.reversed() {
+            let commandRange = match.range
+            guard !isQuoted(str, at: commandRange.location) else { continue }
+
+            let words = adjacentWords(in: str, around: commandRange)
+            let before = words.before.lowercased()
+            let nounArticles = ["a", "an", "the", "this", "that", "my", "your", "his", "her", "its", "our", "their"]
+            if nounArticles.contains(before) { continue }
+
+            let nsStr = str as NSString
+            let prefix = nsStr.substring(to: commandRange.location).trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffix = nsStr.substring(from: NSMaxRange(commandRange)).trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if prefix.isEmpty {
+                str = suffix
+                continue
+            }
+
+            let prefixWords = prefix.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)).filter { !$0.isEmpty }
+            let suffixWords = suffix.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)).filter { !$0.isEmpty }
+
+            var commonMatchIndex: Int? = nil
+            if let firstSuffixWord = suffixWords.first {
+                for (idx, word) in prefixWords.enumerated().reversed() {
+                    if word.caseInsensitiveCompare(firstSuffixWord) == .orderedSame {
+                        commonMatchIndex = idx
+                        break
+                    }
+                }
+            }
+
+            var cutStartLocation = 0
+            if let commonIdx = commonMatchIndex {
+                let wordPattern = "\\b" + NSRegularExpression.escapedPattern(for: prefixWords[commonIdx]) + "\\b"
+                if let wordRegex = try? NSRegularExpression(pattern: wordPattern, options: [.caseInsensitive]),
+                   let wordMatch = wordRegex.matches(in: prefix, range: NSRange(location: 0, length: prefix.utf16.count)).last {
+                    cutStartLocation = wordMatch.range.location
+                }
+            } else if let commaRange = prefix.range(of: "[,;—\\-\\n][^,;—\\-\\n]*$", options: .regularExpression) {
+                cutStartLocation = commaRange.lowerBound.utf16Offset(in: prefix)
+            } else {
+                let wordMatches = (try? NSRegularExpression(pattern: "\\b[\\w'’-]+\\b"))?.matches(in: prefix, range: NSRange(location: 0, length: prefix.utf16.count)) ?? []
+                if let lastWord = wordMatches.last {
+                    cutStartLocation = lastWord.range.location
+                } else {
+                    cutStartLocation = 0
+                }
+            }
+
+            let deleteRange = NSRange(location: cutStartLocation, length: NSMaxRange(commandRange) - cutStartLocation)
+            str = (str as NSString).replacingCharacters(in: deleteRange, with: "")
+        }
+        return normalizeWhitespace(str)
+    }
+
+    /// Parses text replacement pairs from lines like "phrase -> replacement" or "phrase = replacement"
+    public static func parseReplacements(from text: String) -> [TextReplacement] {
+        var results: [TextReplacement] = []
+        let lines = text.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") { continue }
+
+            var phrase: String?
+            var replacement: String?
+
+            if let arrowRange = trimmed.range(of: "->") {
+                phrase = String(trimmed[..<arrowRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                replacement = String(trimmed[arrowRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if let arrowRange = trimmed.range(of: "=>") {
+                phrase = String(trimmed[..<arrowRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                replacement = String(trimmed[arrowRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if let eqRange = trimmed.range(of: "=") {
+                phrase = String(trimmed[..<eqRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                replacement = String(trimmed[eqRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            if let p = phrase, let r = replacement, !p.isEmpty {
+                results.append(TextReplacement(phrase: p, replacement: r))
+            }
+        }
+        return results
+    }
+
+    /// Applies custom text replacements / snippet expansions
+    public func applyTextReplacements(_ text: String, replacements: [TextReplacement]) -> String {
+        var str = text
+        for item in replacements {
+            let phrase = item.phrase.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !phrase.isEmpty else { continue }
+            let pattern = "(?<![\\w'’-])" + NSRegularExpression.escapedPattern(for: phrase) + "(?![\\w'’-])"
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                str = regex.stringByReplacingMatches(
+                    in: str,
+                    options: [],
+                    range: NSRange(location: 0, length: str.utf16.count),
+                    withTemplate: NSRegularExpression.escapedTemplate(for: item.replacement)
+                )
             }
         }
         return str
