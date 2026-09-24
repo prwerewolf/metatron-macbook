@@ -32,9 +32,14 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
    - Removed all hardcoded personal paths in `LocalDaemonClient.swift` and tests.
    - Dynamically discovers daemon and script locations relative to the app bundle or repository root for multi-Mac compatibility.
 
+7. **Speech Transcription Without `ffmpeg`**:
+   - Fixed Fn dictation failing after release when the GUI-launched daemon could not find Homebrew's `ffmpeg`.
+   - The daemon validates and decodes Metatron's 16 kHz mono PCM16 WAV using Python `wave` and NumPy, then passes float32 samples to MLX Whisper.
+   - Added a regression test for sample scaling, array input to MLX, and temporary recording cleanup.
+
 ### Verification Status
-- All test suites passing (`make test`): 13/13 TextCleaner tests, 29 hotkey tests, 10 insertion destination tests, synthetic audio tests, AppState regression suite, and 35 Python daemon unit tests.
-- App bundle builds and codesigns cleanly (`make build`).
+- All test suites passing (`make test`), including 36 Python daemon unit tests and the WAV decoding regression.
+- App bundle builds and codesigns with the existing Metatron Development identity (`make build`). The local app and daemon were restarted (`make run`); an offline synthetic speech sample transcribed successfully through the live daemon. Physical microphone input with Fn still needs a user smoke test.
 
 ---
 
@@ -51,3 +56,4 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
 - **Strict Offline Enforcement**: The Python daemon sets `sys.addaudithook(deny_network_access)` to block socket connections and DNS lookups at the interpreter level. Any feature or dependency that introduces network calls will be blocked and will fail tests.
 - **Standalone Undo vs. Mid-Utterance**: `TextCleaner.isStandaloneUndoCommand` preserves bare undo commands so `AppState` can inspect them before text insertion and trigger `Cmd+Z`. Mid-utterance commands are handled separately in `cleanScratchThatPhrases`.
 - **Accessibility Permissions**: Virtual keystroke insertion (`Cmd+V`, `Cmd+Z`) and focused element inspection require macOS Accessibility permissions. If ungranted, clipboard fallback is used.
+- **GUI Process `PATH`**: Apps launched by Finder may not inherit Homebrew paths. Pass decoded NumPy audio to MLX Whisper, rather than a WAV filename that would make the dependency call `ffmpeg`. Metatron's PCM16 WAV format is validated before inference.

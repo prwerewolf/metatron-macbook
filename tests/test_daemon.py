@@ -4,11 +4,13 @@ import importlib.util
 import json
 import os
 import queue
+import struct
 import tempfile
 import threading
 import types
 import time
 import uuid
+import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import unittest
@@ -193,6 +195,7 @@ class EngineTests(unittest.TestCase):
         self.engine.transcribe.side_effect = error
         with mock.patch.object(daemon.os.path, "isfile", return_value=True), \
                 mock.patch.object(daemon, "complete_model_folder", return_value=True), \
+                mock.patch.object(daemon, "load_recorded_audio", return_value="synthetic samples"), \
                 mock.patch.object(daemon.os, "remove") as remove:
             result = daemon.transcribe_file("/temporary/audio.wav", vocabulary, style)
         remove.assert_called_once_with("/temporary/audio.wav")
@@ -207,6 +210,43 @@ class EngineTests(unittest.TestCase):
     def test_empty_vocabulary_does_not_add_a_prompt(self):
         self.transcribe("Hello", [])
         self.assertIsNone(self.engine.transcribe.call_args.kwargs["initial_prompt"])
+
+    def test_pcm16_wav_is_scaled_and_passed_as_samples_instead_of_path(self):
+        class FakeSamples:
+            def __init__(self, values):
+                self.values = values
+
+            def astype(self, dtype):
+                if dtype != "float32":
+                    raise AssertionError(f"Expected float32, got {dtype}")
+                return self
+
+            def __truediv__(self, divisor):
+                return [sample / divisor for sample in self.values]
+
+        samples = (-32768, -16384, 0, 16384, 32767)
+        pcm = struct.pack("<5h", *samples)
+        self.numpy.frombuffer = mock.Mock(
+            side_effect=lambda data, dtype: FakeSamples(struct.unpack("<5h", data))
+        )
+        self.warm_engine()
+        self.engine.transcribe.reset_mock()
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "speech.wav"
+            with wave.open(str(path), "wb") as recording:
+                recording.setnchannels(1)
+                recording.setsampwidth(2)
+                recording.setframerate(16000)
+                recording.writeframes(pcm)
+            with mock.patch.object(daemon, "complete_model_folder", return_value=True):
+                result = daemon.transcribe_file(str(path))
+            self.assertFalse(path.exists())
+
+        self.assertTrue(result["success"])
+        self.numpy.frombuffer.assert_called_once_with(pcm, dtype="<i2")
+        decoded = self.engine.transcribe.call_args.args[0]
+        self.assertNotIsInstance(decoded, str)
+        self.assertEqual(decoded, [-1.0, -0.5, 0.0, 0.5, 32767 / 32768.0])
 
     def test_raw_and_other_styles_preserve_recognizer_text_for_single_swift_cleanup(self):
         original = "  um go now go now.  \n"
@@ -241,6 +281,7 @@ class EngineTests(unittest.TestCase):
         with mock.patch.object(daemon, "local_model_candidates", return_value=[("cached-model", "/local/model")]), \
                 mock.patch.object(daemon.os.path, "isfile", return_value=True), \
                 mock.patch.object(daemon, "complete_model_folder", return_value=True), \
+                mock.patch.object(daemon, "load_recorded_audio", return_value="synthetic samples"), \
                 mock.patch.object(daemon.os, "remove"), \
                 mock.patch.object(daemon, "print", create=True), \
                 ThreadPoolExecutor(max_workers=1) as worker:

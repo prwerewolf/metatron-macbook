@@ -31,6 +31,8 @@ Temporary recording files are deleted after processing, cancellation, or capture
 
 Metatron uses the existing Python environment at `.venv` and already-downloaded MLX Whisper files. The engine loads and warms the actual model before reporting Ready.
 
+Metatron records 16 kHz mono PCM16 WAV. The local daemon decodes that format directly with Python and NumPy before recognition, so `ffmpeg` is not needed at runtime. This also works when a Finder-launched app does not inherit Homebrew's `PATH`.
+
 The daemon looks in the local Hugging Face cache for `mlx-community/whisper-large-v3-turbo`; an already-cached `mlx-community/whisper-base.en` can serve as a startup fallback. It reads cache directories directly and never calls an online model resolver. Standard `HF_HOME`, `HF_HUB_CACHE`, and `XDG_CACHE_HOME` cache locations are supported.
 
 You can instead set `METATRON_MODEL_DIR` to an existing local model directory containing `config.json` and `weights.safetensors` or `weights.npz` when launching the app/daemon. Missing model files produce an unavailable message; they are never downloaded automatically. Python network sockets and DNS lookups are blocked in the daemon in addition to offline dependency flags.

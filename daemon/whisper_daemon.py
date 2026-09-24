@@ -21,6 +21,7 @@ import fcntl
 import multiprocessing
 import queue
 import stat
+import wave
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -225,6 +226,21 @@ def vocabulary_prompt(vocabulary):
     return ", ".join(terms) if terms else None
 
 
+def load_recorded_audio(audio_path):
+    """Decode Metatron's 16 kHz mono PCM16 WAV without invoking ffmpeg."""
+    with wave.open(audio_path, "rb") as recording:
+        if (recording.getnchannels() != 1 or recording.getframerate() != 16000
+                or recording.getsampwidth() != 2 or recording.getcomptype() != "NONE"):
+            raise ValueError("Unsupported recording format; expected 16 kHz mono PCM16 WAV")
+        pcm = recording.readframes(recording.getnframes())
+    if not pcm:
+        raise ValueError("The recording contains no audio samples")
+
+    import numpy as np
+    # WAV PCM is little-endian. astype makes a writable float32 copy before scaling.
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+
+
 def transcribe_file(audio_path: str, vocabulary=None, style="natural") -> dict:
     if style not in ("natural", "professional", "raw"):
         return {"error": "Unknown writing style"}
@@ -246,8 +262,9 @@ def transcribe_file(audio_path: str, vocabulary=None, style="natural") -> dict:
             # into a Hub lookup. Offline flags + the network guard enforce this too.
             if not active_model_path or not complete_model_folder(active_model_path):
                 raise RuntimeError("The downloaded speech model is missing. Restart Metatron after restoring it.")
+            audio = load_recorded_audio(audio_path)
             result = mlx_whisper.transcribe(
-                audio_path,
+                audio,
                 path_or_hf_repo=active_model_path,
                 fp16=True,
                 verbose=None,
