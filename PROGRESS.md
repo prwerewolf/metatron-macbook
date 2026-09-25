@@ -63,6 +63,13 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
    - Background POSIX watchdog thread in Python terminates the daemon within 1 second if the parent app exits or is force-quit.
    - Explicit `terminateLaunchedDaemon()` hook in `AppDelegate.applicationWillTerminate`.
 
+13. **macOS TCC Sandbox Immunity via Application Support Runtime**:
+   - Resolved the issue where launching `Metatron.app` outside a terminal session (e.g., from Finder, Dock, Spotlight, or Login Items) failed to start the speech daemon with `PermissionError: [Errno 1] Operation not permitted: '.../.venv/pyvenv.cfg'` due to macOS TCC privacy protection on `~/Documents`.
+   - Mirrored the Python runtime virtual environment to `~/Library/Application Support/Metatron/venv`, which macOS always permits apps to access without prompt or restriction.
+   - Updated `LocalDaemonClient.swift` to automatically sync `whisper_daemon.py` to Application Support and prioritize the Application Support Python environment in `candidatePythonPaths`.
+   - Updated `scripts/build_app.sh` and `scripts/setup_mac.sh` to stage and maintain the Application Support environment automatically.
+   - Added `NSDocumentsFolderUsageDescription` in `Resources/Info.plist` for defense-in-depth.
+
 ### Verification Status
 - All test suites passing (`make test`), including 13 cleaner test groups, 13 insertion destination tests, 35 hotkey tests, 14 microphone selection tests, 14 audio conversion/configuration tests, 9 pill display tests, app state rescue tests, and 36 Python daemon unit tests (100% pass rate).
 - App bundle cleanly compiles, packages, and codesigns with persistent identity 'Metatron Development' (`make build`).

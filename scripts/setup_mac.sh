@@ -37,6 +37,15 @@ fi
 "$DIR/.venv/bin/python3" -m pip install --upgrade pip --quiet
 "$DIR/.venv/bin/python3" -m pip install mlx-whisper huggingface_hub --quiet
 
+# Sync runtime environment to Application Support (avoids macOS TCC Documents folder restrictions)
+APP_SUPPORT_DIR="$HOME/Library/Application Support/Metatron"
+APP_SUPPORT_VENV="$APP_SUPPORT_DIR/venv"
+mkdir -p "$APP_SUPPORT_DIR"
+if [ ! -d "$APP_SUPPORT_VENV" ] || [ ! -f "$APP_SUPPORT_VENV/bin/python3" ]; then
+    echo "Syncing runtime virtual environment to Application Support..."
+    cp -R "$DIR/.venv" "$APP_SUPPORT_VENV"
+fi
+
 # 5. Check / Download Offline Model
 echo "[3/4] Checking offline speech model..."
 MODEL_ID="mlx-community/whisper-large-v3-turbo"

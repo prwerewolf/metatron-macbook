@@ -46,7 +46,50 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
 
     private init() {}
 
+    private var appSupportMetatronURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Metatron", isDirectory: true)
+    }
+
+    private func syncDaemonScriptToApplicationSupport() -> String? {
+        guard let dirURL = appSupportMetatronURL else { return nil }
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+        let targetScript = dirURL.appendingPathComponent("whisper_daemon.py")
+
+        let inAppScript = Bundle.main.bundlePath + "/Contents/Resources/whisper_daemon.py"
+        let repoScript = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("daemon/whisper_daemon.py").path
+        let cwdScript = FileManager.default.currentDirectoryPath + "/daemon/whisper_daemon.py"
+
+        let sourcePath: String?
+        if FileManager.default.fileExists(atPath: inAppScript) {
+            sourcePath = inAppScript
+        } else if FileManager.default.fileExists(atPath: repoScript) {
+            sourcePath = repoScript
+        } else if FileManager.default.fileExists(atPath: cwdScript) {
+            sourcePath = cwdScript
+        } else {
+            sourcePath = nil
+        }
+
+        if let sourcePath, let sourceData = try? Data(contentsOf: URL(fileURLWithPath: sourcePath)) {
+            let targetData = try? Data(contentsOf: targetScript)
+            if targetData != sourceData {
+                try? FileManager.default.removeItem(at: targetScript)
+                try? sourceData.write(to: targetScript, options: .atomic)
+            }
+            return targetScript.path
+        }
+
+        if FileManager.default.fileExists(atPath: targetScript.path) {
+            return targetScript.path
+        }
+        return nil
+    }
+
     private func defaultDaemonScriptPath() -> String {
+        if let appSupportScript = syncDaemonScriptToApplicationSupport() {
+            return appSupportScript
+        }
         let inAppScript = Bundle.main.bundlePath + "/Contents/Resources/whisper_daemon.py"
         if FileManager.default.fileExists(atPath: inAppScript) {
             return inAppScript
@@ -152,11 +195,15 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
                 throw engineError("The speech engine could not start. Check the local Python installation.")
             }
             lastLaunchAttempt = Date()
-            let candidatePythonPaths = [
+            let appSupportPython: String? = appSupportMetatronURL?.appendingPathComponent("venv/bin/python3").path
+            let candidatePythonPaths: [String] = [
                 ProcessInfo.processInfo.environment["METATRON_PYTHON"],
+                appSupportPython,
+                NSHomeDirectory() + "/Library/Application Support/Metatron/venv/bin/python3",
+                NSHomeDirectory() + "/.metatron/venv/bin/python3",
+                NSHomeDirectory() + "/.venv/bin/python3",
                 Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(".venv/bin/python3").path,
                 FileManager.default.currentDirectoryPath + "/.venv/bin/python3",
-                NSHomeDirectory() + "/.venv/bin/python3",
                 "/opt/homebrew/bin/python3",
                 "/usr/local/bin/python3",
                 "/usr/bin/python3"
@@ -291,8 +338,16 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             argument.hasPrefix("/") ? argument : URL(fileURLWithPath: workingDirectory ?? repository)
                 .appendingPathComponent(argument).standardizedFileURL.path
         }
-        let knownScripts = [script, defaultDaemonScriptPath(), repository + "/daemon/whisper_daemon.py"]
-        let knownPython = [repository + "/.venv/bin/python3", "/usr/bin/python3"]
+        let appSupportScript: String? = appSupportMetatronURL?.appendingPathComponent("whisper_daemon.py").path
+        let knownScripts: [String] = [script, defaultDaemonScriptPath(), appSupportScript, repository + "/daemon/whisper_daemon.py"].compactMap { $0 }
+        let appSupportPython: String? = appSupportMetatronURL?.appendingPathComponent("venv/bin/python3").path
+        let knownPython: [String] = [
+            appSupportPython,
+            NSHomeDirectory() + "/Library/Application Support/Metatron/venv/bin/python3",
+            NSHomeDirectory() + "/.metatron/venv/bin/python3",
+            repository + "/.venv/bin/python3",
+            "/usr/bin/python3"
+        ].compactMap { $0 }
         return knownPython.contains(absolutePath(arguments[0])) &&
             knownScripts.contains(absolutePath(arguments[2]))
     }

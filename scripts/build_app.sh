@@ -34,9 +34,13 @@ chmod +x "$MACOS_DIR/$APP_NAME"
 # 4. Copy Info.plist
 cp "$DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 
-# 5. Copy local MLX daemon to resources
+# 5. Copy local MLX daemon to resources and Application Support
 cp "$DIR/daemon/whisper_daemon.py" "$RESOURCES_DIR/whisper_daemon.py"
 chmod +x "$RESOURCES_DIR/whisper_daemon.py"
+APP_SUPPORT_DIR="$HOME/Library/Application Support/Metatron"
+mkdir -p "$APP_SUPPORT_DIR"
+cp "$DIR/daemon/whisper_daemon.py" "$APP_SUPPORT_DIR/whisper_daemon.py"
+chmod +x "$APP_SUPPORT_DIR/whisper_daemon.py"
 
 # 6. Copy AppIcon.icns & AppIcon_master.png
 if [ -f "$DIR/Resources/AppIcon.icns" ]; then

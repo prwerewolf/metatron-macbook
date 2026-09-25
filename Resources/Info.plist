@@ -26,5 +26,7 @@
     <string>Metatron requires microphone access to transcribe your spoken voice into text in real-time.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>Metatron requires access to simulate keystrokes and insert transcribed text directly into your active applications.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Metatron requires access to run local speech model helpers and configurations from the repository workspace.</string>
 </dict>
 </plist>
