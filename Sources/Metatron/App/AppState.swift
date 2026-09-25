@@ -206,6 +206,7 @@ public final class AppState: ObservableObject {
         AudioRecorder.shared.onRecordingError = { [weak self] error, url in
             guard let self = self else { return }
             self.cancelDictation(showFeedback: false)
+            HotkeyManager.shared.resetModifierStates()
             if let url { try? FileManager.default.removeItem(at: url) }
             self.statusMessage = error.localizedDescription
             SoundEffects.shared.playError()
@@ -273,13 +274,21 @@ public final class AppState: ObservableObject {
             return false
         }
 
-        // 1. If AX can inspect the preceding character directly at the cursor:
-        if let target, let preceding = target.precedingCharacter() {
-            let whitespaceOrOpening = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "([{“\"'\n\t"))
-            if let scalar = preceding.unicodeScalars.first, whitespaceOrOpening.contains(scalar) {
+        // 1. If AX can inspect the cursor context in the focused control:
+        if let target {
+            switch target.cursorContext() {
+            case .startOfText:
+                // Cursor is at the beginning of the text field (location == 0). Never prepend space.
                 return false
+            case .character(let preceding):
+                let whitespaceOrOpening = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "([{“\"'\n\t"))
+                if let scalar = preceding.unicodeScalars.first, whitespaceOrOpening.contains(scalar) {
+                    return false
+                }
+                return true
+            case .unavailable:
+                break
             }
-            return true
         }
 
         // 2. Fallback: Consecutive dictation in the same app within 45 seconds
@@ -363,6 +372,7 @@ public final class AppState: ObservableObject {
             self.isRecording = false
             self.isProcessing = false
             self.currentAudioLevel = 0.0
+            HotkeyManager.shared.resetModifierStates()
             clearFeedback()
             self.statusMessage = "Ready"
             return
@@ -540,6 +550,7 @@ public final class AppState: ObservableObject {
         isRecording = false
         isProcessing = false
         currentAudioLevel = 0
+        HotkeyManager.shared.resetModifierStates()
         if showFeedback {
             statusMessage = "Canceled"
             scheduleFeedbackReset(after: 1_200_000_000)

@@ -92,6 +92,14 @@ public final class HotkeyManager {
             NSEvent.removeMonitor(monitor)
             localKeyMonitor = nil
         }
+        resetModifierStates()
+    }
+
+    /// Clears any latched key states so an interrupted recording does not ignore subsequent presses.
+    public func resetModifierStates() {
+        isFnDown = false
+        isRightOptionDown = false
+        isRightCommandDown = false
     }
 
     func handleFlagsChanged(event: NSEvent) {

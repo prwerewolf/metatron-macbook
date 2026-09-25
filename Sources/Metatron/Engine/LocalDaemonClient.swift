@@ -405,6 +405,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             var offset = 0
             while offset < bytes.count {
                 let sent = write(fd, base.advanced(by: offset), bytes.count - offset)
+                if sent < 0 && errno == EINTR { continue }
                 guard sent > 0 else { throw engineError("The speech connection was interrupted.") }
                 offset += sent
             }
@@ -413,6 +414,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         var buffer = [UInt8](repeating: 0, count: 4096)
         while !response.contains(0x0A) {
             let count = read(fd, &buffer, buffer.count)
+            if count < 0 && errno == EINTR { continue }
             guard count > 0 else { throw engineError("The local speech engine timed out or disconnected.") }
             response.append(buffer, count: count)
             guard response.count <= 4 * 1024 * 1024 else {

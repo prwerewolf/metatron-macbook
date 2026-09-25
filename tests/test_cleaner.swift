@@ -201,6 +201,15 @@ struct TestRunner {
         let scratch3 = "we need red, cancel that, green"
         assert(cleaner.clean(text: scratch3, style: .natural) == "we need green", "Test 13 Failed: cancel that correction: '\(cleaner.clean(text: scratch3, style: .natural))'")
 
+        let scratchMulti1 = "apple, scratch that, banana, scratch that, orange"
+        assert(cleaner.clean(text: scratchMulti1, style: .natural) == "orange", "Test 13 Failed: multi scratch that: '\(cleaner.clean(text: scratchMulti1, style: .natural))'")
+
+        let scratchMulti2 = "hello, scratch that, world, scratch that, foo, scratch that, bar"
+        assert(cleaner.clean(text: scratchMulti2, style: .natural) == "bar", "Test 13 Failed: sequential scratch that: '\(cleaner.clean(text: scratchMulti2, style: .natural))'")
+
+        let scratchChained = "meeting at four, scratch that, cancel that, five"
+        assert(cleaner.clean(text: scratchChained, style: .natural) == "meeting at five", "Test 13 Failed: chained scratch that: '\(cleaner.clean(text: scratchChained, style: .natural))'")
+
         let nounPreserve = "The cat has a scratch that hurts."
         assert(cleaner.clean(text: nounPreserve, style: .natural) == nounPreserve, "Test 13 Failed: noun 'a scratch that' was stripped")
 

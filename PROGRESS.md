@@ -37,9 +37,17 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
    - The daemon validates and decodes Metatron's 16 kHz mono PCM16 WAV using Python `wave` and NumPy, then passes float32 samples to MLX Whisper.
    - Added a regression test for sample scaling, array input to MLX, and temporary recording cleanup.
 
+8. **Comprehensive Codebase Hardening & Bug Fixes**:
+   - **Bounded Accessibility IPC**: Added a 200ms timeout (`AXUIElementSetMessagingTimeout(element, 0.2)`) on cursor context queries in `InsertionTarget.swift` to prevent main-thread beachballs on sluggish target applications.
+   - **Empty Field Leading Space Suppression**: Introduced typed `CursorContext` (`.character`, `.startOfText`, `.unavailable`) in `InsertionTarget.swift` and `AppState.swift` to prevent erroneous leading spaces when dictating at cursor position 0 in empty fields.
+   - **Sticky Modifier Key Recovery**: Added `resetModifierStates()` in `HotkeyManager.swift` and invoked it on cancellation, click-guard drops, audio recording errors, and `stopListening()` to eliminate latched modifier states.
+   - **Socket `EINTR` Interruption Safety**: Guarded `write()` and `read()` loops in `LocalDaemonClient.swift` against POSIX signal interruptions (`EINTR`).
+   - **Dynamic Excision & Chained Undo Correction**: Replaced static match iteration with dynamic live-string re-matching in `TextCleaner.swift` and added support for chained undo phrases (`"meeting at four, scratch that, cancel that, five"` -> `"meeting at five"`), while preserving noun phrases (`"a scratch that hurts"`).
+   - **Multi-Display Topology Auto-Recovery**: Added an observer for `NSApplication.didChangeScreenParametersNotification` in `FloatingPillWindow.swift` to automatically re-anchor the floating pill to the main screen if an external display is disconnected.
+
 ### Verification Status
-- All test suites passing (`make test`), including 36 Python daemon unit tests and the WAV decoding regression.
-- App bundle builds and codesigns with the existing Metatron Development identity (`make build`). The local app and daemon were restarted (`make run`); an offline synthetic speech sample transcribed successfully through the live daemon. Physical microphone input with Fn still needs a user smoke test.
+- All test suites passing (`make test`), including 13 cleaner test groups, 6 insertion target tests, 8 hotkey tests, 15 app state tests, and 36 Python daemon unit tests (100% pass rate).
+- App bundle cleanly compiles, packages, and codesigns with persistent identity 'Metatron Development' (`make build`).
 
 ---
 

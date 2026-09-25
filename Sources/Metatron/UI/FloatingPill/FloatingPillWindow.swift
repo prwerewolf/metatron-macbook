@@ -41,6 +41,7 @@ public final class FloatingPillPanel: NSPanel {
     private var initialMouse: NSPoint = .zero
     private var initialOrigin: NSPoint = .zero
     private var isDraggingPill = false
+    private var screenParametersObserver: NSObjectProtocol?
 
     public init() {
         let isVert = AppState.shared.pillOrientation == .vertical
@@ -66,6 +67,20 @@ public final class FloatingPillPanel: NSPanel {
         self.contentView = hostingView
 
         restoreSavedPosition()
+
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenParametersChanged()
+        }
+    }
+
+    deinit {
+        if let observer = screenParametersObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     public override var canBecomeKey: Bool {
@@ -322,5 +337,15 @@ public final class FloatingPillPanel: NSPanel {
 
     public func resetPositionToCenter() {
         snap(to: .bottomCenter)
+    }
+
+    /// Re-evaluates position when monitors are connected/disconnected or resolution changes.
+    func handleScreenParametersChanged() {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return }
+        let isVisibleOnAnyScreen = screens.contains { $0.visibleFrame.intersects(self.frame) }
+        if !isVisibleOnAnyScreen {
+            restoreSavedPosition()
+        }
     }
 }

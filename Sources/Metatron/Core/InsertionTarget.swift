@@ -27,34 +27,63 @@ public struct InsertionTarget {
         )
     }
 
+    public init(processID: pid_t, applicationElement: AXUIElement, focusedElement: AXUIElement?) {
+        self.processID = processID
+        self.applicationElement = applicationElement
+        self.focusedElement = focusedElement
+    }
+
     public var targetPID: pid_t { processID }
 
-    /// Attempts to read the character immediately before the current selection/cursor in the focused element.
-    /// Returns nil if accessibility attributes are unsupported.
-    public func precedingCharacter() -> Character? {
-        guard let element = focusedElement ?? Self.focus(in: applicationElement) else { return nil }
+    public enum CursorContext: Equatable {
+        case character(Character)
+        case startOfText
+        case unavailable
+    }
+
+    /// Reads the cursor context in the focused control with bounded IPC timeout.
+    /// Differentiates start-of-field (location == 0) from unsupported accessibility.
+    public func cursorContext(
+        setMessagingTimeout: (AXUIElement, Float) -> AXError = AXUIElementSetMessagingTimeout,
+        copyAttributeValue: (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError = AXUIElementCopyAttributeValue,
+        copyParameterizedAttributeValue: (AXUIElement, CFString, CFTypeRef, UnsafeMutablePointer<CFTypeRef?>) -> AXError = AXUIElementCopyParameterizedAttributeValue
+    ) -> CursorContext {
+        guard let element = focusedElement ?? Self.focus(in: applicationElement) else { return .unavailable }
+        guard setMessagingTimeout(element, 0.2) == .success else { return .unavailable }
         var rangeValue: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+        guard copyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
               let rangeValue,
-              CFGetTypeID(rangeValue) == AXValueGetTypeID() else { return nil }
+              CFGetTypeID(rangeValue) == AXValueGetTypeID() else { return .unavailable }
 
         let axValue = rangeValue as! AXValue
-        guard AXValueGetType(axValue) == .cfRange else { return nil }
+        guard AXValueGetType(axValue) == .cfRange else { return .unavailable }
         var cfRange = CFRange()
-        guard AXValueGetValue(axValue, .cfRange, &cfRange), cfRange.location > 0 else { return nil }
+        guard AXValueGetValue(axValue, .cfRange, &cfRange) else { return .unavailable }
+        if cfRange.location == 0 {
+            return .startOfText
+        }
 
         var charRange = CFRange(location: cfRange.location - 1, length: 1)
-        guard let charRangeVal = AXValueCreate(.cfRange, &charRange) else { return nil }
+        guard let charRangeVal = AXValueCreate(.cfRange, &charRange) else { return .unavailable }
         var stringVal: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
+        guard copyParameterizedAttributeValue(
             element,
             kAXStringForRangeParameterizedAttribute as CFString,
             charRangeVal,
             &stringVal
         ) == .success,
               let string = stringVal as? String,
-              let char = string.first else { return nil }
-        return char
+              let char = string.first else { return .unavailable }
+        return .character(char)
+    }
+
+    /// Attempts to read the character immediately before the current selection/cursor in the focused element.
+    /// Returns nil if accessibility attributes are unsupported or cursor is at start of text.
+    public func precedingCharacter() -> Character? {
+        if case .character(let char) = cursorContext() {
+            return char
+        }
+        return nil
     }
 
     public var isCurrent: Bool {

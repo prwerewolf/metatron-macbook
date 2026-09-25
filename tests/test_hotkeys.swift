@@ -102,6 +102,16 @@ struct HotkeyTests {
             expect(["cancel"], "Escape works while a dictation modifier is still held (\(choice))")
         }
 
+        // Test resetModifierStates unsticking latched keys
+        manager.activeHotkey = .fnHold
+        manager.activeMode = .pushToTalk
+        manager.handleFlagsChanged(event: event(63, flags: .function))
+        expect(["down"], "Fn press down")
+        manager.resetModifierStates()
+        manager.handleFlagsChanged(event: event(63, flags: .function))
+        expect(["down"], "Fn press down again after resetModifierStates must trigger down")
+        manager.resetModifierStates()
+
         print("All Metatron hotkey tests passed (\(checked) scenarios).")
     }
 }

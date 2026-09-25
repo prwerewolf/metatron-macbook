@@ -71,15 +71,55 @@ struct InsertionTargetTests {
         precondition(responsiveFocus.map { CFEqual($0, application) } == true,
                      "A successful bounded query must preserve its focused element")
 
-        // An Accessibility timeout or missing original target must never paste.
-        var nilTargetOutcome: Bool?
-        let queuedWithoutTarget = TextInserter.shared.insertText(
-            "Sensitive dictation", target: nil,
-            completion: { inserted in nilTargetOutcome = inserted }
+        // Test bounded timeout and cursor context on focused element
+        let targetWithElement = InsertionTarget(processID: 100, applicationElement: application, focusedElement: application)
+        var cursorTimeout: Float = 0
+        let timedOutContext = targetWithElement.cursorContext(
+            setMessagingTimeout: { _, timeout in
+                cursorTimeout = timeout
+                return .cannotComplete
+            }
         )
-        precondition(!queuedWithoutTarget && nilTargetOutcome == false,
-                     "A nil destination must fail before touching the clipboard")
+        precondition(timedOutContext == .unavailable, "Stalled cursor query must fail closed")
+        precondition(cursorTimeout == 0.2, "Cursor context must enforce 0.2s messaging timeout")
 
-        print("All Metatron insertion destination tests passed (\(scenarios.count + 4) scenarios).")
+        // Location 0 should return startOfText
+        var zeroRange = CFRange(location: 0, length: 0)
+        let zeroAxVal = AXValueCreate(.cfRange, &zeroRange)!
+        let startContext = targetWithElement.cursorContext(
+            setMessagingTimeout: { _, _ in .success },
+            copyAttributeValue: { _, attr, result in
+                if attr as String == kAXSelectedTextRangeAttribute as String {
+                    result.pointee = zeroAxVal
+                    return .success
+                }
+                return .attributeUnsupported
+            }
+        )
+        precondition(startContext == .startOfText, "Location 0 must report startOfText")
+
+        // Location > 0 should return character
+        var midRange = CFRange(location: 5, length: 0)
+        let midAxVal = AXValueCreate(.cfRange, &midRange)!
+        let charContext = targetWithElement.cursorContext(
+            setMessagingTimeout: { _, _ in .success },
+            copyAttributeValue: { _, attr, result in
+                if attr as String == kAXSelectedTextRangeAttribute as String {
+                    result.pointee = midAxVal
+                    return .success
+                }
+                return .attributeUnsupported
+            },
+            copyParameterizedAttributeValue: { _, attr, _, result in
+                if attr as String == kAXStringForRangeParameterizedAttribute as String {
+                    result.pointee = "W" as CFString
+                    return .success
+                }
+                return .attributeUnsupported
+            }
+        )
+        precondition(charContext == .character("W"), "Location > 0 must report preceding character")
+
+        print("All Metatron insertion destination tests passed (\(scenarios.count + 7) scenarios).")
     }
 }

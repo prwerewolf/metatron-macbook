@@ -145,7 +145,6 @@ public final class TextCleaner {
             ("\\bexclamation mark\\b", "!"),
             ("\\bnew paragraph\\b", "\n\n"),
             ("\\bnew line\\b", "\n"),
-            ("\\bquestion mark\\b", "?"),
             ("\\bsemicolon\\b", ";"),
             ("\\bperiod\\b", "."),
             ("\\bcomma\\b", ","),
@@ -333,13 +332,21 @@ public final class TextCleaner {
     public static func isStandaloneUndoCommand(_ text: String) -> Bool {
         let cleaned = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".!?:;,")))
         let lower = cleaned.lowercased()
-        return lower == "scratch that" ||
-               lower == "cancel that" ||
-               lower == "undo that" ||
-               lower == "undo" ||
-               lower == "actually scratch that" ||
-               lower == "scratch that please" ||
-               lower == "cancel that please"
+        if lower == "scratch that" ||
+           lower == "cancel that" ||
+           lower == "undo that" ||
+           lower == "undo" ||
+           lower == "actually scratch that" ||
+           lower == "scratch that please" ||
+           lower == "cancel that please" {
+            return true
+        }
+        let standalonePattern = "^(?:(?:actually|no|wait|please)\\s+)*\\b(?:scratch|cancel|undo)\\s+that\\b[.,;]?(?:[\\s,]+(?:(?:actually|no|wait|please)\\s+)*\\b(?:scratch|cancel|undo)\\s+that\\b[.,;]?)*$"
+        if let regex = try? NSRegularExpression(pattern: standalonePattern, options: [.caseInsensitive]) {
+            let range = NSRange(location: 0, length: cleaned.utf16.count)
+            return regex.firstMatch(in: cleaned, options: [], range: range) != nil
+        }
+        return false
     }
 
     /// Mid-utterance voice correction:
@@ -353,31 +360,42 @@ public final class TextCleaner {
         }
 
         var str = text
-        let pattern = "(?:,\\s*)?(?:\\b(?:actually|no|wait)\\s+)?\\b(?:scratch|cancel|undo)\\s+that\\b[.,;]?"
+        let pattern = "(?:,\\s*)?(?:\\b(?:actually|no|wait)\\s+)*\\b(?:scratch|cancel|undo)\\s+that\\b[.,;]?(?:[\\s,]+(?:(?:actually|no|wait)\\s+)*\\b(?:scratch|cancel|undo)\\s+that\\b[.,;]?)*"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return text
         }
 
-        let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
-        for match in matches.reversed() {
-            let commandRange = match.range
-            guard !isQuoted(str, at: commandRange.location) else { continue }
-
-            let words = adjacentWords(in: str, around: commandRange)
-            let before = words.before.lowercased()
-            let nounArticles = ["a", "an", "the", "this", "that", "my", "your", "his", "her", "its", "our", "their"]
-            if nounArticles.contains(before) { continue }
-
+        var iterations = 0
+        while iterations < 20 {
+            iterations += 1
             let nsStr = str as NSString
-            let prefix = nsStr.substring(to: commandRange.location).trimmingCharacters(in: .whitespacesAndNewlines)
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: nsStr.length))
+            guard let match = matches.reversed().first(where: { m in
+                guard !isQuoted(str, at: m.range.location) else { return false }
+                let matchedStr = nsStr.substring(with: m.range).lowercased()
+                if matchedStr.contains("scratch") {
+                    let words = adjacentWords(in: str, around: m.range)
+                    let before = words.before.lowercased()
+                    let nounArticles = ["a", "an", "the", "this", "that", "my", "your", "his", "her", "its", "our", "their"]
+                    if nounArticles.contains(before) {
+                        return false
+                    }
+                }
+                return true
+            }) else {
+                break
+            }
+
+            let commandRange = match.range
+            let rawPrefix = nsStr.substring(to: commandRange.location)
             let suffix = nsStr.substring(from: NSMaxRange(commandRange)).trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if prefix.isEmpty {
+            if rawPrefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 str = suffix
                 continue
             }
 
-            let prefixWords = prefix.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)).filter { !$0.isEmpty }
+            let prefixWords = rawPrefix.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)).filter { !$0.isEmpty }
             let suffixWords = suffix.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)).filter { !$0.isEmpty }
 
             var commonMatchIndex: Int? = nil
@@ -394,13 +412,13 @@ public final class TextCleaner {
             if let commonIdx = commonMatchIndex {
                 let wordPattern = "\\b" + NSRegularExpression.escapedPattern(for: prefixWords[commonIdx]) + "\\b"
                 if let wordRegex = try? NSRegularExpression(pattern: wordPattern, options: [.caseInsensitive]),
-                   let wordMatch = wordRegex.matches(in: prefix, range: NSRange(location: 0, length: prefix.utf16.count)).last {
+                   let wordMatch = wordRegex.matches(in: rawPrefix, range: NSRange(location: 0, length: rawPrefix.utf16.count)).last {
                     cutStartLocation = wordMatch.range.location
                 }
-            } else if let commaRange = prefix.range(of: "[,;—\\-\\n][^,;—\\-\\n]*$", options: .regularExpression) {
-                cutStartLocation = commaRange.lowerBound.utf16Offset(in: prefix)
+            } else if let commaRange = rawPrefix.range(of: "[,;—\\-\\n][^,;—\\-\\n]*$", options: .regularExpression) {
+                cutStartLocation = commaRange.lowerBound.utf16Offset(in: rawPrefix)
             } else {
-                let wordMatches = (try? NSRegularExpression(pattern: "\\b[\\w'’-]+\\b"))?.matches(in: prefix, range: NSRange(location: 0, length: prefix.utf16.count)) ?? []
+                let wordMatches = (try? NSRegularExpression(pattern: "\\b[\\w'’-]+\\b"))?.matches(in: rawPrefix, range: NSRange(location: 0, length: rawPrefix.utf16.count)) ?? []
                 if let lastWord = wordMatches.last {
                     cutStartLocation = lastWord.range.location
                 } else {

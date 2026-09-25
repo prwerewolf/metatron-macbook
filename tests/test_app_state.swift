@@ -35,6 +35,8 @@ public final class HotkeyManager {
     public var onHotkeyUp: (() -> Void)?
     public var onToggle: (() -> Void)?
     public var onCancel: (() -> Void)?
+    public private(set) var resetModifierStatesCount = 0
+    public func resetModifierStates() { resetModifierStatesCount += 1 }
     public static func isAccessibilityGranted() -> Bool { granted }
     public static func requestAccessibilityPermission() {}
 }
@@ -92,12 +94,26 @@ public enum LaunchAtLogin {
 }
 
 public struct InsertionTarget {
+    public enum CursorContext: Equatable {
+        case character(Character)
+        case startOfText
+        case unavailable
+    }
     public static var current = true
     public static var mockPrecedingChar: Character? = nil
+    public static var mockCursorContext: CursorContext? = nil
     public static func capture() -> InsertionTarget? { InsertionTarget() }
     public var isCurrent: Bool { Self.current }
     public var targetPID: pid_t { 123 }
-    public func precedingCharacter() -> Character? { Self.mockPrecedingChar }
+    public func cursorContext() -> CursorContext {
+        if let mock = Self.mockCursorContext { return mock }
+        if let char = Self.mockPrecedingChar { return .character(char) }
+        return .unavailable
+    }
+    public func precedingCharacter() -> Character? {
+        if case .character(let char) = cursorContext() { return char }
+        return nil
+    }
 }
 
 public final class TextInserter {
@@ -338,6 +354,15 @@ struct AppStateTests {
         InsertionTarget.mockPrecedingChar = " "
         precondition(!AppState.shouldPrependSpace(to: "hello", target: testTarget, lastInsertionTime: nil, lastInsertionPID: nil, lastInsertedEndsWithWhitespace: false, now: now))
         InsertionTarget.mockPrecedingChar = nil
+
+        // Start of text via AX (location == 0) must never prepend space even within 45s window
+        InsertionTarget.mockCursorContext = .startOfText
+        precondition(!AppState.shouldPrependSpace(to: "hello", target: testTarget, lastInsertionTime: now, lastInsertionPID: 123, lastInsertedEndsWithWhitespace: false, now: now),
+                     "Start of text must never prepend space")
+        InsertionTarget.mockCursorContext = nil
+
+        precondition(HotkeyManager.shared.resetModifierStatesCount > 0,
+                     "Cancellation and error recovery must unstick modifier states")
 
         // Voice Undo Command detection
         precondition(AppState.isUndoCommand("scratch that"))
