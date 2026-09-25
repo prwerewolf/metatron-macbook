@@ -358,7 +358,7 @@ class DaemonConnectionTests(unittest.TestCase):
         daemon.handle_connection(connection, worker)
         worker.submit.assert_not_called()
         response = json.loads(connection.sendall.call_args.args[0])
-        self.assertIn("Restart Metatron", response["error"])
+        self.assertIn("Restart Press To Write", response["error"])
 
     def test_ping_never_queues_behind_inference(self):
         connection = self.make_connection(b'{"action":"ping"}\n')

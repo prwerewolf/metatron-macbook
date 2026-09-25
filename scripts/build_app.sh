@@ -5,17 +5,18 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
 echo "=========================================="
-echo "  Building Metatron for macOS (Apple M4 Max)"
+echo "  Building Press To Write for macOS"
 echo "=========================================="
 
-APP_NAME="Metatron"
+APP_NAME="Press To Write"
+TARGET_NAME="PressToWrite"
 BUILD_CONFIG="release"
 
 # 1. Compile Swift executable
 echo "Compiling Swift executable ($BUILD_CONFIG)..."
 swift build -c "$BUILD_CONFIG"
 
-EXECUTABLE_PATH="$DIR/.build/$BUILD_CONFIG/$APP_NAME"
+EXECUTABLE_PATH="$DIR/.build/$BUILD_CONFIG/$TARGET_NAME"
 APP_BUNDLE="$DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -28,8 +29,8 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 # 3. Copy binary
-cp "$EXECUTABLE_PATH" "$MACOS_DIR/$APP_NAME"
-chmod +x "$MACOS_DIR/$APP_NAME"
+cp "$EXECUTABLE_PATH" "$MACOS_DIR/$TARGET_NAME"
+chmod +x "$MACOS_DIR/$TARGET_NAME"
 
 # 4. Copy Info.plist
 cp "$DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
@@ -37,7 +38,7 @@ cp "$DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 # 5. Copy local MLX daemon to resources and Application Support
 cp "$DIR/daemon/whisper_daemon.py" "$RESOURCES_DIR/whisper_daemon.py"
 chmod +x "$RESOURCES_DIR/whisper_daemon.py"
-APP_SUPPORT_DIR="$HOME/Library/Application Support/Metatron"
+APP_SUPPORT_DIR="$HOME/Library/Application Support/Press To Write"
 mkdir -p "$APP_SUPPORT_DIR"
 cp "$DIR/daemon/whisper_daemon.py" "$APP_SUPPORT_DIR/whisper_daemon.py"
 chmod +x "$APP_SUPPORT_DIR/whisper_daemon.py"
@@ -51,7 +52,7 @@ if [ -f "$DIR/Resources/AppIcon_master.png" ]; then
 fi
 
 # 7. Code signing with stable identity (preserves macOS Accessibility / TCC permissions across rebuilds)
-SIGNING_IDENTITY="Metatron Development"
+SIGNING_IDENTITY="Press To Write Development"
 
 has_signing_identity() {
     security find-identity -p codesigning 2>/dev/null | grep -Fq "\"$SIGNING_IDENTITY\""
@@ -73,7 +74,7 @@ distinguished_name = dn
 x509_extensions = v3_ca
 
 [ dn ]
-CN = Metatron Development
+CN = Press To Write Development
 
 [ v3_ca ]
 basicConstraints = critical, CA:FALSE
@@ -88,11 +89,11 @@ EOF
             -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" 2>/dev/null && \
            { openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
                 -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
-                -password pass:metatron -legacy 2>/dev/null || \
+                -password pass:presstowrite -legacy 2>/dev/null || \
              openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
                 -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
-                -password pass:metatron 2>/dev/null; } && \
-           security import "$CERT_DIR/cert.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P metatron -A; then
+                -password pass:presstowrite 2>/dev/null; } && \
+           security import "$CERT_DIR/cert.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P presstowrite -A; then
             if has_signing_identity; then
                 echo "Persistent identity '$SIGNING_IDENTITY' is available."
             else

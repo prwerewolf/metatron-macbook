@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "Metatron",
+    name: "PressToWrite",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "Metatron", targets: ["Metatron"])
+        .executable(name: "PressToWrite", targets: ["PressToWrite"])
     ],
     targets: [
         .executableTarget(
-            name: "Metatron",
-            path: "Sources/Metatron"
+            name: "PressToWrite",
+            path: "Sources/PressToWrite"
         )
     ]
 )

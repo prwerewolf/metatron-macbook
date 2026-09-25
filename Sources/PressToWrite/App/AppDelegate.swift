@@ -67,11 +67,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private func setupMainMenu() {
         let mainMenu = NSMenu()
 
-        // 1. Application Menu (Metatron)
+        // 1. Application Menu (Press To Write)
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
 
-        let aboutItem = NSMenuItem(title: "About Metatron", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "About Press To Write", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(aboutItem)
 
         appMenu.addItem(NSMenuItem.separator())
@@ -98,7 +98,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
 
         appMenu.addItem(NSMenuItem.separator())
 
-        let hideItem = NSMenuItem(title: "Hide Metatron", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideItem = NSMenuItem(title: "Hide Press To Write", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(hideItem)
 
         let hideOthersItem = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
@@ -110,7 +110,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
 
         appMenu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "Quit Metatron", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Press To Write", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appMenu.addItem(quitItem)
 
         appMenuItem.submenu = appMenu
@@ -142,10 +142,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     }
 
     private func setupStatusItem() {
-        let autosaveName = "MetatronMenuBar"
+        let autosaveName = "PressToWriteMenuBar"
         // Remove the earlier forced placement once, then let macOS and the user
         // choose and retain the icon's position normally.
-        let previousPlacementOverride = "metatron_menu_position_seeded_v1"
+        let previousPlacementOverride = "presstowrite_menu_position_seeded_v1"
         if UserDefaults.standard.bool(forKey: previousPlacementOverride) {
             UserDefaults.standard.removeObject(forKey: "NSStatusItem Preferred Position \(autosaveName)")
             UserDefaults.standard.removeObject(forKey: previousPlacementOverride)
@@ -154,19 +154,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         item.autosaveName = autosaveName
         item.isVisible = true
         if let button = item.button {
-            let icon = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Metatron")
+            let icon = NSImage(systemSymbolName: "waveform.circle.fill", accessibilityDescription: "Press To Write")
             icon?.size = NSSize(width: 18, height: 18)
             icon?.isTemplate = true
             button.image = icon
-            if icon == nil { button.title = "M" }
+            if icon == nil { button.title = "P" }
             button.imagePosition = icon == nil ? .noImage : .imageOnly
-            button.toolTip = "Metatron — Local Dictation"
-            button.setAccessibilityLabel("Metatron")
+            button.toolTip = "Press To Write — Local Dictation"
+            button.setAccessibilityLabel("Press To Write")
         }
 
         let menu = NSMenu()
 
-        let statusMenuItem = NSMenuItem(title: "Metatron Scribe", action: nil, keyEquivalent: "")
+        let statusMenuItem = NSMenuItem(title: "Press To Write", action: nil, keyEquivalent: "")
         statusMenuItem.isEnabled = false
         menu.addItem(statusMenuItem)
 
@@ -234,7 +234,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "Quit Metatron", action: #selector(quitApp), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit Press To Write", action: #selector(quitApp), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -302,7 +302,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Metatron Settings"
+            window.title = "Press To Write Settings"
             window.delegate = self
             window.center()
             window.contentView = NSHostingView(rootView: SettingsView())
@@ -328,7 +328,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Metatron History"
+            window.title = "Press To Write History"
             window.center()
             window.contentView = NSHostingView(rootView: HistoryView())
             window.isReleasedWhenClosed = false
@@ -346,7 +346,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
                 backing: .buffered,
                 defer: false
             )
-            window.title = "Metatron Permissions & Setup"
+            window.title = "Press To Write Permissions & Setup"
             window.center()
             window.contentView = NSHostingView(rootView: PermissionsView())
             window.isReleasedWhenClosed = false

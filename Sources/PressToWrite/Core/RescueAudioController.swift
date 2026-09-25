@@ -17,8 +17,8 @@ public final class RescueAudioController: @unchecked Sendable {
 
     private init() {
         let fileManager = FileManager.default
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Metatron", isDirectory: true)
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let base = appSupport.appendingPathComponent("Press To Write", isDirectory: true)
         try? fileManager.createDirectory(at: base, withIntermediateDirectories: true)
         self.appSupportURL = base
         self.rescueWavURL = base.appendingPathComponent("last_recording.wav")

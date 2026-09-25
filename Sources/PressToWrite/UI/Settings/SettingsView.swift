@@ -67,8 +67,8 @@ struct GeneralSettingsTab: View {
             Divider()
 
             Section {
-                Toggle("Launch Metatron at Login", isOn: $appState.launchAtLogin)
-                Text("Automatically start Metatron when you log into this Mac.")
+                Toggle("Launch Press To Write at Login", isOn: $appState.launchAtLogin)
+                Text("Automatically start Press To Write when you log into this Mac.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } header: {

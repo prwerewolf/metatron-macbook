@@ -37,14 +37,19 @@ final class InFlightTranscription: @unchecked Sendable {
 public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable {
     public static let shared = LocalDaemonClient()
 
-    private let socketPath = "/tmp/metatron.sock"
+    private let socketPath = "/tmp/presstowrite.sock"
     private let protocolVersion = 3
-    private let lifecycleQueue = DispatchQueue(label: "com.metatron.local-engine", qos: .utility)
+    private let lifecycleQueue = DispatchQueue(label: "com.presstowrite.local-engine", qos: .utility)
     // Only accessed on lifecycleQueue, which also serializes launch attempts.
     private var launchedProcess: Process?
     private var lastLaunchAttempt: Date = .distantPast
 
     private init() {}
+
+    private var appSupportURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Press To Write", isDirectory: true)
+    }
 
     private var appSupportMetatronURL: URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
@@ -52,7 +57,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
     }
 
     private func syncDaemonScriptToApplicationSupport() -> String? {
-        guard let dirURL = appSupportMetatronURL else { return nil }
+        guard let dirURL = appSupportURL ?? appSupportMetatronURL else { return nil }
         try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
         let targetScript = dirURL.appendingPathComponent("whisper_daemon.py")
 
@@ -163,7 +168,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
               response["script_sha256"] as? String == expectedHash else {
             return LocalEngineStatus(
                 phase: .unavailable,
-                message: "The local speech engine is outdated. Reopen Metatron to restart it."
+                message: "The local speech engine is outdated. Reopen Press To Write to restart it."
             )
         }
         let phase: LocalEngineStatus.Phase
@@ -195,11 +200,14 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
                 throw engineError("The speech engine could not start. Check the local Python installation.")
             }
             lastLaunchAttempt = Date()
-            let appSupportPython: String? = appSupportMetatronURL?.appendingPathComponent("venv/bin/python3").path
+            let appSupportPython: String? = (appSupportURL ?? appSupportMetatronURL)?.appendingPathComponent("venv/bin/python3").path
             let candidatePythonPaths: [String] = [
+                ProcessInfo.processInfo.environment["PRESSTOWRITE_PYTHON"],
                 ProcessInfo.processInfo.environment["METATRON_PYTHON"],
                 appSupportPython,
+                NSHomeDirectory() + "/Library/Application Support/Press To Write/venv/bin/python3",
                 NSHomeDirectory() + "/Library/Application Support/Metatron/venv/bin/python3",
+                NSHomeDirectory() + "/.presstowrite/venv/bin/python3",
                 NSHomeDirectory() + "/.metatron/venv/bin/python3",
                 NSHomeDirectory() + "/.venv/bin/python3",
                 Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(".venv/bin/python3").path,
@@ -209,7 +217,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
                 "/usr/bin/python3"
             ].compactMap { $0 }
             let pythonPath = candidatePythonPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) ?? "/usr/bin/python3"
-            let logURL = URL(fileURLWithPath: "/tmp/metatron_daemon.log")
+            let logURL = URL(fileURLWithPath: "/tmp/presstowrite_daemon.log")
             if !FileManager.default.fileExists(atPath: logURL.path) {
                 FileManager.default.createFile(atPath: logURL.path, contents: nil)
             }
@@ -227,6 +235,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             environment["TRANSFORMERS_OFFLINE"] = "1"
             environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            environment["PRESSTOWRITE_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
             environment["METATRON_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
             process.environment = environment
             try process.run()
@@ -243,7 +252,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
 
     private func replaceOutdatedDaemon(_ response: [String: Any], script: String) throws {
         guard response["offline"] as? Bool == true else {
-            throw engineError("Another process is using Metatron's local speech socket.")
+            throw engineError("Another process is using Press To Write's local speech socket.")
         }
         var legacyPID: pid_t?
         if response["protocol_version"] as? Int == protocolVersion,
@@ -258,9 +267,9 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             }
         } else if response["protocol_version"] as? Int == 2 {
             // Version 2 has no shutdown command. Identify the actual Unix peer and
-            // its exact Metatron script arguments before sending it SIGTERM.
+            // its exact daemon script arguments before sending it SIGTERM.
             guard let pid = verifiedLegacyDaemonPID(script: script), kill(pid, SIGTERM) == 0 else {
-                throw engineError("The old local speech engine could not be safely replaced. Quit it and reopen Metatron.")
+                throw engineError("The old local speech engine could not be safely replaced. Quit it and reopen Press To Write.")
             }
             legacyPID = pid
         } else {
@@ -338,12 +347,14 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             argument.hasPrefix("/") ? argument : URL(fileURLWithPath: workingDirectory ?? repository)
                 .appendingPathComponent(argument).standardizedFileURL.path
         }
-        let appSupportScript: String? = appSupportMetatronURL?.appendingPathComponent("whisper_daemon.py").path
+        let appSupportScript: String? = (appSupportURL ?? appSupportMetatronURL)?.appendingPathComponent("whisper_daemon.py").path
         let knownScripts: [String] = [script, defaultDaemonScriptPath(), appSupportScript, repository + "/daemon/whisper_daemon.py"].compactMap { $0 }
-        let appSupportPython: String? = appSupportMetatronURL?.appendingPathComponent("venv/bin/python3").path
+        let appSupportPython: String? = (appSupportURL ?? appSupportMetatronURL)?.appendingPathComponent("venv/bin/python3").path
         let knownPython: [String] = [
             appSupportPython,
+            NSHomeDirectory() + "/Library/Application Support/Press To Write/venv/bin/python3",
             NSHomeDirectory() + "/Library/Application Support/Metatron/venv/bin/python3",
+            NSHomeDirectory() + "/.presstowrite/venv/bin/python3",
             NSHomeDirectory() + "/.metatron/venv/bin/python3",
             repository + "/.venv/bin/python3",
             "/usr/bin/python3"
@@ -401,7 +412,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
                         ], timeout: 120, inFlight: inFlight)
                         if inFlight.isCancelled { throw CancellationError() }
                         guard response["protocol_version"] as? Int == self.protocolVersion else {
-                            throw self.engineError("Restart Metatron to update the local speech engine.")
+                            throw self.engineError("Restart Press To Write to update the local speech engine.")
                         }
                         if let error = response["error"] as? String { throw self.engineError(error) }
                         guard let text = response["text"] as? String else {
@@ -495,6 +506,6 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
     }
 
     private func engineError(_ message: String) -> NSError {
-        NSError(domain: "MetatronLocal", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        NSError(domain: "PressToWriteLocal", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }

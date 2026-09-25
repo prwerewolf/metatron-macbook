@@ -3,15 +3,17 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>Metatron</string>
+    <string>PressToWrite</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.SampleUser.metatron</string>
+    <string>com.presstowrite.mac</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Metatron</string>
+    <string>Press To Write</string>
+    <key>CFBundleDisplayName</key>
+    <string>Press To Write</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -23,10 +25,10 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Metatron requires microphone access to transcribe your spoken voice into text in real-time.</string>
+    <string>Press To Write requires microphone access to transcribe your spoken voice into text in real-time.</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Metatron requires access to simulate keystrokes and insert transcribed text directly into your active applications.</string>
+    <string>Press To Write requires access to simulate keystrokes and insert transcribed text directly into your active applications.</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>Metatron requires access to run local speech model helpers and configurations from the repository workspace.</string>
+    <string>Press To Write requires access to run local speech model helpers and configurations from the repository workspace.</string>
 </dict>
 </plist>

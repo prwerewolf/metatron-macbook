@@ -26,7 +26,7 @@ import wave
 from concurrent.futures import Future
 from pathlib import Path
 
-SOCKET_PATH = "/tmp/metatron.sock"
+SOCKET_PATH = "/tmp/presstowrite.sock"
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 FALLBACK_MODEL = "mlx-community/whisper-base.en"
 PROTOCOL_VERSION = 3
@@ -48,9 +48,9 @@ bound_socket_identity = None
 def deny_network_access(event, args):
     """Defense in depth: this daemon permits Unix sockets, never network sockets."""
     if event == "socket.__new__" and args[1] in (socket.AF_INET, socket.AF_INET6):
-        raise OSError("Metatron speech recognition is offline; network access is disabled")
+        raise OSError("Press To Write speech recognition is offline; network access is disabled")
     if event in ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyaddr"):
-        raise OSError("Metatron speech recognition is offline; DNS access is disabled")
+        raise OSError("Press To Write speech recognition is offline; DNS access is disabled")
 
 
 def complete_model_folder(folder):
@@ -66,7 +66,7 @@ def complete_model_folder(folder):
 
 def local_model_candidates():
     """Find downloaded files directly; never invoke a Hub resolver or downloader."""
-    explicit_path = os.environ.get("METATRON_MODEL_DIR")
+    explicit_path = os.environ.get("PRESSTOWRITE_MODEL_DIR") or os.environ.get("METATRON_MODEL_DIR")
     if explicit_path:
         folder = Path(explicit_path).expanduser().resolve()
         if not complete_model_folder(folder):
@@ -97,7 +97,7 @@ def local_model_candidates():
     if not candidates:
         raise RuntimeError(
             "No downloaded speech model was found. Install a local MLX Whisper model "
-            "and restart Metatron. No model will be downloaded automatically."
+            "and restart Press To Write. No model will be downloaded automatically."
         )
     return candidates
 
@@ -262,7 +262,7 @@ def transcribe_file(audio_path: str, vocabulary=None, style="natural") -> dict:
             # Recheck that files still exist. Even a removed cache must never turn
             # into a Hub lookup. Offline flags + the network guard enforce this too.
             if not active_model_path or not complete_model_folder(active_model_path):
-                raise RuntimeError("The downloaded speech model is missing. Restart Metatron after restoring it.")
+                raise RuntimeError("The downloaded speech model is missing. Restart Press To Write after restoring it.")
             audio = load_recorded_audio(audio_path)
             result = mlx_whisper.transcribe(
                 audio,
@@ -530,7 +530,7 @@ def handle_connection(conn, worker):
         if action == "ping":
             response = engine_status()
         elif req.get("protocol_version") != PROTOCOL_VERSION:
-            response = {"error": "Restart Metatron to update the local speech connection"}
+            response = {"error": "Restart Press To Write to update the local speech connection"}
         elif action == "transcribe":
             request_id = req.get("request_id")
             if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-fA-F-]{36}", request_id):
@@ -563,7 +563,7 @@ def handle_connection(conn, worker):
 
 
 def start_parent_watchdog():
-    parent_pid_str = os.environ.get("METATRON_PARENT_PID")
+    parent_pid_str = os.environ.get("PRESSTOWRITE_PARENT_PID") or os.environ.get("METATRON_PARENT_PID")
     if not parent_pid_str:
         return
     try:
@@ -580,7 +580,7 @@ def start_parent_watchdog():
                 os.kill(parent_pid, 0)
             except OSError as err:
                 if err.errno == errno.ESRCH:
-                    print(f"[Metatron Daemon] Parent process {parent_pid} exited. Stopping daemon.")
+                    print(f"[Press To Write Daemon] Parent process {parent_pid} exited. Stopping daemon.")
                     server_stop.set()
                     time.sleep(0.5)
                     os._exit(0)
@@ -605,7 +605,7 @@ def run_server():
     server.listen(16)
     server.settimeout(0.5)
     os.chmod(SOCKET_PATH, 0o600)
-    print(f"[Metatron Daemon] Offline socket initialized at {SOCKET_PATH}")
+    print(f"[Press To Write Daemon] Offline socket initialized at {SOCKET_PATH}")
     worker = IsolatedInferenceWorker()
     try:
         while not server_stop.is_set():

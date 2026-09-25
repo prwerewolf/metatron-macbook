@@ -1,6 +1,8 @@
 .build/
 .venv/
 Metatron.app/
+Press To Write.app/
+*.app/
 *.o
 *.dylib
 *.log

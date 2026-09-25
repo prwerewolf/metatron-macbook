@@ -3,7 +3,7 @@ import AppKit
 
 @main
 @MainActor
-struct MetatronApp {
+struct PressToWriteApp {
     static func main() {
         let app = NSApplication.shared
         let delegate = AppDelegate()

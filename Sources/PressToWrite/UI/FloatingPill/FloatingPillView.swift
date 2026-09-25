@@ -110,7 +110,7 @@ public struct FloatingPillView: View {
                     .lineLimit(1)
             } else {
                 // Sleek Idle text — NO dots, NO "Hold Fn"
-                Text("Metatron")
+                Text("Press To Write")
                     .font(.system(size: 11.0, weight: .medium, design: .rounded))
                     .foregroundColor(.white.opacity(0.85))
             }

@@ -5,13 +5,13 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
 echo "=========================================="
-echo "  Metatron Setup for macOS (Apple Silicon)"
+echo "  Press To Write Setup for macOS (Apple Silicon)"
 echo "=========================================="
 
 # 1. Architecture Check
 ARCH=$(uname -m)
 if [ "$ARCH" != "arm64" ]; then
-    echo "Error: Metatron requires an Apple Silicon Mac (M1/M2/M3/M4, arm64). Detected: $ARCH"
+    echo "Error: Press To Write requires an Apple Silicon Mac (M1/M2/M3/M4, arm64). Detected: $ARCH"
     exit 1
 fi
 
@@ -38,7 +38,7 @@ fi
 "$DIR/.venv/bin/python3" -m pip install mlx-whisper huggingface_hub --quiet
 
 # Sync runtime environment to Application Support (avoids macOS TCC Documents folder restrictions)
-APP_SUPPORT_DIR="$HOME/Library/Application Support/Metatron"
+APP_SUPPORT_DIR="$HOME/Library/Application Support/Press To Write"
 APP_SUPPORT_VENV="$APP_SUPPORT_DIR/venv"
 mkdir -p "$APP_SUPPORT_DIR"
 if [ ! -d "$APP_SUPPORT_VENV" ] || [ ! -f "$APP_SUPPORT_VENV/bin/python3" ]; then
@@ -68,15 +68,15 @@ if [ "$MODEL_STATUS" = "EXISTS" ]; then
     echo "✓ Found local speech model in cache."
 else
     echo "Model not found in cache. Downloading $MODEL_ID (one-time setup)..."
-    "$DIR/.venv/bin/python3" -m huggingface_hub.cli.core download "$MODEL_ID"
+    "$DIR/.venv/bin/python3" -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='$MODEL_ID')"
 fi
 
 # 6. Build application
-echo "[4/4] Building Metatron.app..."
+echo "[4/4] Building Press To Write.app..."
 "$DIR/scripts/build_app.sh"
 
 echo ""
 echo "=========================================="
-echo "  Setup complete! Starting Metatron..."
+echo "  Setup complete! Starting Press To Write..."
 echo "=========================================="
 "$DIR/scripts/run.sh"

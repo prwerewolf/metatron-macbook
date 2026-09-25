@@ -35,7 +35,7 @@ public final class FloatingPillPanel: NSPanel {
     private let userDefaultsKeyDisplay = "metatron_pill_display"
 
     // Ultra-compact, sleek dimensions — minimal footprint, zero dots
-    public static let horizontalSize = NSSize(width: 106, height: 30)
+    public static let horizontalSize = NSSize(width: 126, height: 30)
     public static let verticalSize = NSSize(width: 30, height: 44)
 
     private var initialMouse: NSPoint = .zero

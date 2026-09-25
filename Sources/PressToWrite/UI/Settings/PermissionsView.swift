@@ -21,7 +21,7 @@ public struct PermissionsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Permissions & Setup")
                         .font(.headline)
-                    Text("Metatron requires two macOS permissions to listen and insert text.")
+                    Text("Press To Write requires two macOS permissions to listen and insert text.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -36,7 +36,7 @@ public struct PermissionsView: View {
                         Text("All Permissions Active!")
                             .fontWeight(.semibold)
                             .foregroundColor(.green)
-                        Text("Metatron is fully configured and ready. Hold Fn and speak anytime.")
+                        Text("Press To Write is fully configured and ready. Hold Fn and speak anytime.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -151,7 +151,7 @@ public struct PermissionsView: View {
                 Button("Auto-Fix / Reset Permissions") {
                     let task = Process()
                     task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-                    task.arguments = ["reset", "Accessibility", "com.SampleUser.metatron"]
+                    task.arguments = ["reset", "Accessibility", "com.presstowrite.mac"]
                     try? task.run()
                     task.waitUntilExit()
 
@@ -159,7 +159,7 @@ public struct PermissionsView: View {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                         NSWorkspace.shared.open(url)
                     }
-                    statusInfo = "Reset macOS permission cache. Toggle Metatron in System Settings."
+                    statusInfo = "Reset macOS permission cache. Toggle Press To Write in System Settings."
                 }
                 .buttonStyle(.bordered)
                 .help("Clears old build signatures from macOS Privacy cache if System Settings gets stuck")

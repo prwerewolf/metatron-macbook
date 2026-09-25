@@ -9,47 +9,47 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 MODULE_CACHE="${CLANG_MODULE_CACHE_PATH:-$TEST_DIR/module-cache}"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Engine/TextCleaner.swift tests/test_cleaner.swift \
+    Sources/PressToWrite/Engine/TextCleaner.swift tests/test_cleaner.swift \
     -o "$TEST_DIR/cleaner"
 "$TEST_DIR/cleaner"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Engine/SpeechEngine.swift Sources/Metatron/Engine/TextCleaner.swift \
-    Sources/Metatron/Engine/LocalDaemonClient.swift tests/test_local_daemon_client.swift \
+    Sources/PressToWrite/Engine/SpeechEngine.swift Sources/PressToWrite/Engine/TextCleaner.swift \
+    Sources/PressToWrite/Engine/LocalDaemonClient.swift tests/test_local_daemon_client.swift \
     -o "$TEST_DIR/local-daemon-client"
 "$TEST_DIR/local-daemon-client"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Core/HotkeyManager.swift tests/test_hotkeys.swift \
+    Sources/PressToWrite/Core/HotkeyManager.swift tests/test_hotkeys.swift \
     -o "$TEST_DIR/hotkeys"
 "$TEST_DIR/hotkeys"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Core/InsertionTarget.swift Sources/Metatron/Core/TextInserter.swift \
+    Sources/PressToWrite/Core/InsertionTarget.swift Sources/PressToWrite/Core/TextInserter.swift \
     tests/test_insertion_target.swift \
     -o "$TEST_DIR/insertion-target"
 "$TEST_DIR/insertion-target"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Core/AudioInputDevice.swift tests/test_microphone.swift \
+    Sources/PressToWrite/Core/AudioInputDevice.swift tests/test_microphone.swift \
     -o "$TEST_DIR/microphone"
 "$TEST_DIR/microphone"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Core/AudioInputDevice.swift Sources/Metatron/Core/AudioInputDeviceController.swift \
-    Sources/Metatron/Core/AudioRecorder.swift tests/test_audio_conversion.swift \
+    Sources/PressToWrite/Core/AudioInputDevice.swift Sources/PressToWrite/Core/AudioInputDeviceController.swift \
+    Sources/PressToWrite/Core/AudioRecorder.swift tests/test_audio_conversion.swift \
     -o "$TEST_DIR/audio-conversion"
 "$TEST_DIR/audio-conversion"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/UI/FloatingPill/PillDisplayRestoration.swift tests/test_pill_display.swift \
+    Sources/PressToWrite/UI/FloatingPill/PillDisplayRestoration.swift tests/test_pill_display.swift \
     -o "$TEST_DIR/pill-display"
 "$TEST_DIR/pill-display"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
-    Sources/Metatron/Core/RescueAudioController.swift \
-    Sources/Metatron/App/AppState.swift Sources/Metatron/Engine/TextCleaner.swift \
-    Sources/Metatron/Engine/SpeechEngine.swift tests/test_app_state.swift \
+    Sources/PressToWrite/Core/RescueAudioController.swift \
+    Sources/PressToWrite/App/AppState.swift Sources/PressToWrite/Engine/TextCleaner.swift \
+    Sources/PressToWrite/Engine/SpeechEngine.swift tests/test_app_state.swift \
     -o "$TEST_DIR/app-state"
 "$TEST_DIR/app-state"
 

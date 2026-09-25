@@ -1,8 +1,8 @@
-# Metatron Project Status & Handoff
+# Press To Write Project Status & Handoff
 
 ## Where We Stand
 
-Metatron is a 100% offline, local-first push-to-talk speech dictation app for Apple Silicon running macOS 13+. All speech recognition, text cleanup, and system integrations run strictly on-device with zero internet connectivity.
+Press To Write (formerly Metatron) is a 100% offline, local-first push-to-talk speech dictation app for Apple Silicon running macOS 13+. All speech recognition, text cleanup, and system integrations run strictly on-device with zero internet connectivity.
 
 ### Recently Completed & Verified
 
@@ -70,9 +70,18 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
    - Updated `scripts/build_app.sh` and `scripts/setup_mac.sh` to stage and maintain the Application Support environment automatically.
    - Added `NSDocumentsFolderUsageDescription` in `Resources/Info.plist` for defense-in-depth.
 
+14. **Full Rebrand to Press To Write (`Press To Write.app`)**:
+   - Rebranded the entire application from Metatron to **Press To Write** across native Swift sources, app bundle (`Press To Write.app`), bundle identifier (`com.presstowrite.mac`), Swift package target (`PressToWrite`), and local codesigning identity (`Press To Write Development`).
+   - Cleaned up legacy prototype processes (`PushTalk`), reset TCC permissions for `com.presstowrite.mac`, and unhooked legacy Fn key interceptors.
+   - Updated all user-facing UI: Menu Bar ("Press To Write"), Floating Pill ("Press To Write", adjusted horizontal pill width to 126pt), Settings, History, and Permissions windows.
+   - Modernized offline model downloader in `scripts/setup_mac.sh` to use `huggingface_hub.snapshot_download` instead of deprecated `huggingface_hub.cli.core`.
+   - Updated local IPC socket path to `/tmp/presstowrite.sock` with dual environment variable support (`PRESSTOWRITE_MODEL_DIR` / `METATRON_MODEL_DIR`, `PRESSTOWRITE_PYTHON` / `METATRON_PYTHON`).
+   - Re-verified full test suite and clean release build.
+
 ### Verification Status
 - All test suites passing (`make test`), including 13 cleaner test groups, 13 insertion destination tests, 35 hotkey tests, 14 microphone selection tests, 14 audio conversion/configuration tests, 9 pill display tests, app state rescue tests, and 36 Python daemon unit tests (100% pass rate).
-- App bundle cleanly compiles, packages, and codesigns with persistent identity 'Metatron Development' (`make build`).
+- App bundle cleanly compiles, packages, and codesigns with persistent identity 'Press To Write Development' (`make build`).
+- Live app verified running (`Press To Write.app` / `PressToWrite`, PID `10617`) with offline daemon listening on `/tmp/presstowrite.sock`.
 
 ---
 
