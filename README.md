@@ -18,6 +18,7 @@ The compact pill can be dragged to screen edges and remembers its monitor across
 - **Custom vocabulary & Text Replacements:** Comma-separated vocabulary terms guide local recognition. The Text Replacements editor in Settings → Style allows defining voice snippet macros (`phrase -> replacement` or `phrase = replacement`, e.g., `my email -> test@example.com`).
 - **Voice Correction & Undo ("Scratch That"):** Mid-sentence corrections like *"meeting at four, scratch that, five"* replace the abandoned phrase. Speaking *"scratch that"*, *"cancel that"*, or *"undo that"* as a standalone utterance triggers a native `Cmd+Z` undo keystroke with visual feedback on the pill.
 - **Smart Prefix Spacing:** Consecutive dictations into the same app/control automatically prepend a space, using accessibility cursor inspection with a 45-second fallback for smooth multi-sentence dictation.
+- **Audio Rescue & Recovery:** If an audio device disconnects mid-speech or an unexpected engine error occurs, Metatron preserves the raw audio recording in `~/Library/Application Support/Metatron/last_recording.wav`. The **Transcribe Last Recording** menu item in the macOS status bar allows immediate one-click recovery of the dictated speech directly to your clipboard.
 - **Accidental Click Guard:** Hotkey presses shorter than 0.25 seconds are silently discarded without transcription or error chimes.
 - **Natural:** Conservative removal of clear hesitations and obvious repetition loops, preserving wording, casing, and literal punctuation words.
 - **Professional:** Natural cleanup plus spoken punctuation (`comma`, `period`, `new line`, `new paragraph`), bullet commands, and sentence capitalization. Choose Natural for literal uses of those command words.
@@ -25,7 +26,7 @@ The compact pill can be dragged to screen edges and remembers its monitor across
 - **Clipboard:** Existing transient clipboard markers and automatic restoration are used for insertion. “Keep Speech on System Clipboard” retains copied speech when enabled. If Accessibility is unavailable, the existing copy-to-clipboard fallback remains available.
 - **History:** Session Only is the default. Incognito disables history; rolling limits keep the last 10 or 50 entries in memory. History is not persisted across app restarts.
 
-Temporary recording files are deleted after processing, cancellation, or capture failure. Audio tests only compute levels in memory. Text deliberately copied or inserted into another application follows that application's own storage/sync behavior.
+Temporary recording files in `/tmp` are removed after processing, while the most recent recording is securely archived in Application Support for recovery. Audio tests only compute levels in memory. Text deliberately copied or inserted into another application follows that application's own storage/sync behavior.
 
 ## Offline model setup
 

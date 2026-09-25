@@ -112,6 +112,19 @@ struct HotkeyTests {
         expect(["down"], "Fn press down again after resetModifierStates must trigger down")
         manager.resetModifierStates()
 
+        // Test that flagsChanged without .function unlatches isFnDown even if keyCode is not 63
+        manager.handleFlagsChanged(event: event(63, flags: .function))
+        expect(["down"], "Fn press down")
+        manager.handleFlagsChanged(event: event(0, flags: []))
+        expect(["up"], "Unrelated flagsChanged without function flag must unlatch Fn and trigger up")
+
+        // Test that flagsChanged without right option unlatches isRightOptionDown
+        manager.activeHotkey = .rightOption
+        manager.handleFlagsChanged(event: event(61, flags: .option.union(NSEvent.ModifierFlags(rawValue: UInt(NX_DEVICERALTKEYMASK)))))
+        expect(["down"], "Right option press down")
+        manager.handleFlagsChanged(event: event(0, flags: []))
+        expect(["up"], "FlagsChanged without right option mask must unlatch Option and trigger up")
+
         print("All Metatron hotkey tests passed (\(checked) scenarios).")
     }
 }

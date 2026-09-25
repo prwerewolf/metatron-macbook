@@ -84,6 +84,16 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         }
     }
 
+    /// Terminates any daemon process launched by this client instance.
+    public func terminateLaunchedDaemon() {
+        lifecycleQueue.sync {
+            if let process = self.launchedProcess, process.isRunning {
+                process.terminate()
+                self.launchedProcess = nil
+            }
+        }
+    }
+
     /// Launch and socket I/O run off the main thread. The daemon answers pings during warmup
     /// and inference, so "Ready" always means the actual model has finished loading.
     public func engineStatus() async -> LocalEngineStatus {
@@ -170,6 +180,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             environment["TRANSFORMERS_OFFLINE"] = "1"
             environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            environment["METATRON_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
             process.environment = environment
             try process.run()
             launchedProcess = process

@@ -49,6 +49,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         AppState.shared.cancelDictation(showFeedback: false)
         HotkeyManager.shared.stopListening()
         pillPanel?.saveCurrentPosition()
+        LocalDaemonClient.shared.terminateLaunchedDaemon()
     }
 
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -179,6 +180,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         copyLastItem.target = self
         menu.addItem(copyLastItem)
 
+        let recoverItem = NSMenuItem(title: "Transcribe Last Recording", action: #selector(transcribeLastRecordingAction), keyEquivalent: "r")
+        recoverItem.target = self
+        menu.addItem(recoverItem)
+
         // Transcription Style Submenu
         let styleMenuItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
         let styleSubmenu = NSMenu()
@@ -259,6 +264,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
                 copyItem.isEnabled = true
             }
         }
+        if let recoverItem = menu.items.first(where: { $0.action == #selector(transcribeLastRecordingAction) }) {
+            if RescueAudioController.shared.hasRescueAudio {
+                let duration = RescueAudioController.shared.pendingMetadata?.duration ?? 0.0
+                recoverItem.title = String(format: "Transcribe Last Recording (%.1fs)", duration)
+                recoverItem.isEnabled = !AppState.shared.isRecording && !AppState.shared.isProcessing
+            } else {
+                recoverItem.title = "Transcribe Last Recording (None)"
+                recoverItem.isEnabled = false
+            }
+        }
     }
 
     @objc private func toggleDictation() {
@@ -267,6 +282,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
 
     @objc private func copyLastDictationAction() {
         AppState.shared.copyLastDictation()
+    }
+
+    @objc private func transcribeLastRecordingAction() {
+        AppState.shared.transcribeRescueAudio()
     }
 
     @objc private func selectStyle(_ sender: NSMenuItem) {

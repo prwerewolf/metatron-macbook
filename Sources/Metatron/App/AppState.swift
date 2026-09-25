@@ -141,6 +141,15 @@ public final class AppState: ObservableObject {
         loadSettings()
         setupAudioLevelCallback()
         setupHotkeys()
+        checkPendingRescueAudio()
+    }
+
+    private func checkPendingRescueAudio() {
+        if RescueAudioController.shared.hasRescueAudio,
+           let meta = RescueAudioController.shared.pendingMetadata,
+           meta.status == "pending" || meta.status == "failed" {
+            NSLog("[Metatron] Found untranscribed rescue audio (%.2fs, status=%@)", meta.duration, meta.status)
+        }
     }
 
     private func loadSettings() {
@@ -205,6 +214,13 @@ public final class AppState: ObservableObject {
         }
         AudioRecorder.shared.onRecordingError = { [weak self] error, url in
             guard let self = self else { return }
+            let duration = Date().timeIntervalSince(self.recordingStartTime ?? Date())
+            let capturedURL = url ?? self.activeAudioURL
+            if let capturedURL, FileManager.default.fileExists(atPath: capturedURL.path), duration >= 1.0 {
+                NSLog("[Metatron Rescue] Microphone error after %.2fs of speech: rescuing audio", duration)
+                RescueAudioController.shared.saveRescueAudio(from: capturedURL, duration: duration)
+                RescueAudioController.shared.markTranscriptionFailed(error: error.localizedDescription)
+            }
             self.cancelDictation(showFeedback: false)
             HotkeyManager.shared.resetModifierStates()
             if let url { try? FileManager.default.removeItem(at: url) }
@@ -331,6 +347,7 @@ public final class AppState: ObservableObject {
         clearFeedback()
         guard engineStatus.phase == .ready else {
             statusMessage = engineStatus.message
+            HotkeyManager.shared.resetModifierStates()
             return
         }
 
@@ -350,6 +367,7 @@ public final class AppState: ObservableObject {
         } catch {
             NSLog("[Metatron] Failed to start audio recording: \(error)")
             self.statusMessage = error.localizedDescription
+            HotkeyManager.shared.resetModifierStates()
             SoundEffects.shared.playError()
             self.scheduleFeedbackReset(after: 3_000_000_000)
         }
@@ -387,6 +405,9 @@ public final class AppState: ObservableObject {
 
         let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
         NSLog("[Metatron Timing] stop_audio=%.3fs", ProcessInfo.processInfo.systemUptime - pipelineStartedAt)
+        if let audioURL, FileManager.default.fileExists(atPath: audioURL.path) {
+            RescueAudioController.shared.saveRescueAudio(from: audioURL, duration: duration)
+        }
         let target = insertionTarget
         let vocabulary = TextCleaner.shared.customVocabulary
         let replacements = TextCleaner.shared.customReplacements
@@ -443,6 +464,7 @@ public final class AppState: ObservableObject {
                 }
 
                 if !cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    RescueAudioController.shared.markTranscriptionCompleted()
                     var needsManualInsertion = false
 
                     // Smart Prefix Spacing: prepend space if following a prior insertion in same target
@@ -517,6 +539,7 @@ public final class AppState: ObservableObject {
                         self.scheduleFeedbackReset(after: 3_500_000_000)
                     }
                 } else {
+                    RescueAudioController.shared.markTranscriptionCompleted()
                     self.statusMessage = "No Speech Detected"
                     self.scheduleFeedbackReset(after: 1_200_000_000)
                 }
@@ -525,6 +548,80 @@ public final class AppState: ObservableObject {
             } catch {
                 guard self.transcriptionID == requestID, !Task.isCancelled else { return }
                 NSLog("[Metatron] Transcription error: \(error)")
+                RescueAudioController.shared.markTranscriptionFailed(error: error.localizedDescription)
+                let msg = error.localizedDescription
+                self.statusMessage = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
+                SoundEffects.shared.playError()
+                self.scheduleFeedbackReset(after: 3_000_000_000)
+            }
+        }
+    }
+
+    public func transcribeRescueAudio() {
+        guard !isRecording, !isProcessing else { return }
+        guard RescueAudioController.shared.hasRescueAudio else {
+            statusMessage = "No Rescued Audio"
+            scheduleFeedbackReset(after: 1_500_000_000)
+            return
+        }
+
+        let rescueURL = RescueAudioController.shared.rescueAudioURL
+        let duration = RescueAudioController.shared.pendingMetadata?.duration ?? 0.0
+
+        clearFeedback()
+        self.isProcessing = true
+        self.statusMessage = "Transcribing Rescue Audio..."
+        self.currentAudioLevel = 0.0
+        SoundEffects.shared.playStop()
+
+        let vocabulary = TextCleaner.shared.customVocabulary
+        let replacements = TextCleaner.shared.customReplacements
+        let style = transcriptionStyle
+        let requestID = UUID()
+        transcriptionID = requestID
+        processingAudioURL = rescueURL
+
+        transcriptionTask = Task {
+            defer {
+                if self.transcriptionID == requestID {
+                    self.isProcessing = false
+                    self.processingAudioURL = nil
+                    self.transcriptionID = nil
+                    self.transcriptionTask = nil
+                }
+            }
+
+            guard self.transcriptionID == requestID, !Task.isCancelled else { return }
+
+            do {
+                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: rescueURL, vocabulary: vocabulary, style: style)
+                try Task.checkCancellation()
+                guard self.transcriptionID == requestID else { return }
+                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary, replacements: replacements)
+
+                if !cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    RescueAudioController.shared.markTranscriptionCompleted()
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(cleanedText, forType: .string)
+
+                    self.lastTranscribedText = cleanedText
+                    self.hasPendingInsertion = false
+                    self.statusMessage = "Rescued Audio Copied to Clipboard!"
+                    self.showSuccess = true
+                    SoundEffects.shared.playSuccess()
+
+                    self.recordHistory(raw: rawText, cleaned: cleanedText, duration: duration)
+                    self.scheduleFeedbackReset(after: 3_500_000_000)
+                } else {
+                    RescueAudioController.shared.markTranscriptionCompleted()
+                    self.statusMessage = "No Speech in Rescued Audio"
+                    self.scheduleFeedbackReset(after: 2_000_000_000)
+                }
+            } catch is CancellationError {
+            } catch {
+                guard self.transcriptionID == requestID, !Task.isCancelled else { return }
+                NSLog("[Metatron] Rescue transcription error: \(error)")
+                RescueAudioController.shared.markTranscriptionFailed(error: error.localizedDescription)
                 let msg = error.localizedDescription
                 self.statusMessage = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
                 SoundEffects.shared.playError()

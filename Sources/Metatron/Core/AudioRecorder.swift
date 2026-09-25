@@ -58,11 +58,40 @@ public final class AudioRecorder: NSObject {
         }
     }
 
-    /// Starts a 16 kHz mono PCM recording using the chosen input device.
+    /// Starts a 16 kHz mono PCM recording using the best available input device with automatic fallback.
     public func startRecording() throws -> URL {
         if isRecordingInternal, let existingURL = tempFileURL { return existingURL }
         MicrophoneController.shared.stopTest()
-        let (engine, device, inputFormat) = try makeInputEngine()
+
+        let microphone = MicrophoneController.shared
+        microphone.refreshDevices()
+        let candidateDevices = AudioInputSelection.candidates(
+            selectedUID: microphone.selectedInputUID,
+            devices: microphone.availableInputs,
+            systemDefaultID: microphone.systemDefaultID
+        )
+
+        var candidatesToTry: [AudioInputDevice?] = candidateDevices.map { Optional($0) }
+        // Fallback to unconfigured AUHAL default if explicit candidates fail
+        candidatesToTry.append(nil)
+
+        var lastError: Error?
+        for candidate in candidatesToTry {
+            do {
+                let url = try attemptStartCapture(device: candidate)
+                return url
+            } catch {
+                lastError = error
+                NSLog("[Metatron] Audio capture candidate %@ failed: %@", candidate?.name ?? "AUHAL default", error.localizedDescription)
+                continue
+            }
+        }
+
+        throw lastError ?? MicrophoneError.cannotSelectDevice
+    }
+
+    private func attemptStartCapture(device: AudioInputDevice?) throws -> URL {
+        let (engine, resolvedDevice, inputFormat) = try makeInputEngine(device: device)
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("metatron_\(UUID().uuidString).wav")
         let token = UUID()
@@ -122,8 +151,8 @@ public final class AudioRecorder: NSObject {
             tapInstalled = true
             engine.prepare()
             try engine.start()
-            watchConfiguration(engine, device: device, format: inputFormat, token: token)
-            MicrophoneController.shared.recordingStarted(device: device)
+            watchConfiguration(engine, device: resolvedDevice, format: inputFormat, token: token)
+            MicrophoneController.shared.recordingStarted(device: resolvedDevice)
             return outputURL
         } catch {
             gate.close()
@@ -158,32 +187,48 @@ public final class AudioRecorder: NSObject {
     ) throws -> AudioInputDevice {
         guard !isRecordingInternal else { throw MicrophoneError.recordingInProgress }
         stopMicrophoneTest()
-        let (engine, device, inputFormat) = try makeInputEngine()
-        let token = UUID()
-        let gate = CaptureGate()
-        audioEngine = engine
-        captureToken = token
-        captureGate = gate
-        testFailure = onFailure
-        isTestingInternal = true
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
-            gate.performWhileActive {
-                let level = Self.calculateAudioLevel(buffer: buffer)
-                DispatchQueue.main.async { [weak self] in
-                    guard self?.captureToken == token else { return }
-                    onLevel(level)
+        let microphone = MicrophoneController.shared
+        microphone.refreshDevices()
+        let candidateDevices = AudioInputSelection.candidates(
+            selectedUID: microphone.selectedInputUID,
+            devices: microphone.availableInputs,
+            systemDefaultID: microphone.systemDefaultID
+        )
+
+        var lastError: Error?
+        var candidatesToTry: [AudioInputDevice?] = candidateDevices.map { Optional($0) }
+        candidatesToTry.append(nil)
+
+        for candidate in candidatesToTry {
+            do {
+                let (engine, device, inputFormat) = try makeInputEngine(device: candidate)
+                let token = UUID()
+                let gate = CaptureGate()
+                audioEngine = engine
+                captureToken = token
+                captureGate = gate
+                testFailure = onFailure
+                isTestingInternal = true
+                engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+                    gate.performWhileActive {
+                        let level = Self.calculateAudioLevel(buffer: buffer)
+                        DispatchQueue.main.async { [weak self] in
+                            guard self?.captureToken == token else { return }
+                            onLevel(level)
+                        }
+                    }
                 }
+                engine.prepare()
+                try engine.start()
+                watchConfiguration(engine, device: device, format: inputFormat, token: token)
+                return device
+            } catch {
+                stopMicrophoneTest()
+                lastError = error
+                continue
             }
         }
-        do {
-            engine.prepare()
-            try engine.start()
-            watchConfiguration(engine, device: device, format: inputFormat, token: token)
-            return device
-        } catch {
-            stopMicrophoneTest()
-            throw error
-        }
+        throw lastError ?? MicrophoneError.cannotSelectDevice
     }
 
     func stopMicrophoneTest() {
@@ -208,33 +253,34 @@ public final class AudioRecorder: NSObject {
         return converter
     }
 
-    private func makeInputEngine() throws -> (AVAudioEngine, AudioInputDevice, AVAudioFormat) {
-        let microphone = MicrophoneController.shared
-        microphone.refreshDevices()
-        let device = try AudioInputSelection.resolve(
-            selectedUID: microphone.selectedInputUID,
-            devices: microphone.availableInputs,
-            systemDefaultID: microphone.systemDefaultID
-        )
+    private func makeInputEngine(device: AudioInputDevice?) throws -> (AVAudioEngine, AudioInputDevice, AVAudioFormat) {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         guard let unit = input.audioUnit else { throw MicrophoneError.cannotSelectDevice }
-        // A redundant device assignment can itself enqueue a configuration
-        // notification after startup. Leave an already-correct input alone.
-        if Self.currentDeviceID(unit) != device.id {
-            var id = AudioDeviceID(device.id)
-            guard AudioUnitSetProperty(
-                unit,
-                kAudioOutputUnitProperty_CurrentDevice,
-                kAudioUnitScope_Global,
-                0,
-                &id,
-                UInt32(MemoryLayout<AudioDeviceID>.size)
-            ) == noErr else { throw MicrophoneError.cannotSelectDevice }
+
+        let resolvedDevice: AudioInputDevice
+        if let device {
+            if Self.currentDeviceID(unit) != device.id {
+                var id = AudioDeviceID(device.id)
+                guard AudioUnitSetProperty(
+                    unit,
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    kAudioUnitScope_Global,
+                    0,
+                    &id,
+                    UInt32(MemoryLayout<AudioDeviceID>.size)
+                ) == noErr else { throw MicrophoneError.cannotSelectDevice }
+            }
+            resolvedDevice = device
+        } else {
+            guard let curID = Self.currentDeviceID(unit) else { throw MicrophoneError.cannotSelectDevice }
+            resolvedDevice = MicrophoneController.shared.availableInputs.first(where: { $0.id == curID })
+                ?? AudioInputDevice(id: curID, uid: "default", name: "Default Microphone")
         }
+
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw MicrophoneError.invalidFormat }
-        return (engine, device, format)
+        return (engine, resolvedDevice, format)
     }
 
     private static func currentDeviceID(_ unit: AudioUnit) -> AudioDeviceID? {

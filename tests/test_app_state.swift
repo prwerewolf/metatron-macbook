@@ -381,6 +381,24 @@ struct AppStateTests {
         precondition(TextInserter.shared.undoCount == priorUndos + 1)
         precondition(state.showSuccess)
 
-        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, smart spacing, undo command, click guard, and unchanged clipboard fallback.")
+        // Rescue audio persistence and recovery test
+        let testRescueAudio = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rescue-test-\(UUID().uuidString).wav")
+        try Data(repeating: 1, count: 2000).write(to: testRescueAudio)
+        RescueAudioController.shared.saveRescueAudio(from: testRescueAudio, duration: 3.5)
+        precondition(RescueAudioController.shared.hasRescueAudio, "Rescue audio must exist")
+        precondition(RescueAudioController.shared.pendingMetadata?.duration == 3.5, "Rescue duration matches")
+        precondition(RescueAudioController.shared.pendingMetadata?.status == "pending", "Status is pending")
+
+        engine.result = .success("Rescued speech content")
+        state.transcribeRescueAudio()
+        try await waitUntil { !state.isProcessing }
+        precondition(RescueAudioController.shared.pendingMetadata?.status == "transcribed", "Status marked transcribed")
+        precondition(state.lastTranscribedText == "Rescued speech content")
+        precondition(NSPasteboard.general.writes.contains("Rescued speech content"))
+        RescueAudioController.shared.clearRescueAudio()
+        try? FileManager.default.removeItem(at: testRescueAudio)
+
+        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, smart spacing, undo command, click guard, rescue audio, and unchanged clipboard fallback.")
     }
 }

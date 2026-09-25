@@ -59,6 +59,51 @@ public enum AudioInputSelection {
         }
         return device
     }
+
+    /// Provides prioritized candidates to ensure audio capture never fails if the preferred device is unresponsive.
+    public static func candidates(
+        selectedUID: String,
+        devices: [AudioInputDevice],
+        systemDefaultID: UInt32?
+    ) -> [AudioInputDevice] {
+        var result: [AudioInputDevice] = []
+        var seenIDs = Set<UInt32>()
+
+        // 1. Primary choice if resolvable
+        if let primary = try? resolve(selectedUID: selectedUID, devices: devices, systemDefaultID: systemDefaultID) {
+            result.append(primary)
+            seenIDs.insert(primary.id)
+        }
+
+        // 2. Built-in microphone fallback
+        if let builtIn = devices.first(where: {
+            $0.uid == "BuiltInMicrophoneDevice" ||
+            $0.uid.localizedCaseInsensitiveContains("built-in") ||
+            $0.uid.localizedCaseInsensitiveContains("builtin") ||
+            $0.name.localizedCaseInsensitiveContains("built-in") ||
+            $0.name.localizedCaseInsensitiveContains("built in") ||
+            $0.name.localizedCaseInsensitiveContains("macbook")
+        }), !seenIDs.contains(builtIn.id) {
+            result.append(builtIn)
+            seenIDs.insert(builtIn.id)
+        }
+
+        // 3. System default fallback
+        if let defaultID = systemDefaultID,
+           let defaultDev = devices.first(where: { $0.id == defaultID }),
+           !seenIDs.contains(defaultDev.id) {
+            result.append(defaultDev)
+            seenIDs.insert(defaultDev.id)
+        }
+
+        // 4. Any remaining available devices
+        for dev in devices where !seenIDs.contains(dev.id) {
+            result.append(dev)
+            seenIDs.insert(dev.id)
+        }
+
+        return result
+    }
 }
 
 /// Core Audio enumeration does not open an input stream or request microphone access.

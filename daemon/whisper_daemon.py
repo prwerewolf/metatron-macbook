@@ -10,6 +10,7 @@ os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
 
 import sys
+import errno
 import re
 import json
 import time
@@ -561,12 +562,40 @@ def handle_connection(conn, worker):
         conn.close()
 
 
+def start_parent_watchdog():
+    parent_pid_str = os.environ.get("METATRON_PARENT_PID")
+    if not parent_pid_str:
+        return
+    try:
+        parent_pid = int(parent_pid_str)
+        if parent_pid <= 1:
+            return
+    except ValueError:
+        return
+
+    def _watch():
+        while not server_stop.is_set():
+            time.sleep(1.0)
+            try:
+                os.kill(parent_pid, 0)
+            except OSError as err:
+                if err.errno == errno.ESRCH:
+                    print(f"[Metatron Daemon] Parent process {parent_pid} exited. Stopping daemon.")
+                    server_stop.set()
+                    time.sleep(0.5)
+                    os._exit(0)
+
+    t = threading.Thread(target=_watch, daemon=True, name="ParentWatchdog")
+    t.start()
+
+
 def run_server():
     global bound_socket_identity
     lock_file = open(SOCKET_PATH + ".lock", "a+b")
     fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
     remove_stale_socket()
     server_stop.clear()
+    start_parent_watchdog()
     signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
     signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

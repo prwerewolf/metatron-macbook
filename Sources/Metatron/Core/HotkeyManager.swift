@@ -118,9 +118,10 @@ public final class HotkeyManager {
                     } else {
                         onToggle?()
                     }
-                } else if !fnPressedNow && isFnDown {
+                } else if !fnPressedNow {
+                    let wasDown = isFnDown
                     isFnDown = false
-                    if activeMode == .pushToTalk {
+                    if wasDown && activeMode == .pushToTalk {
                         onHotkeyUp?()
                     }
                 }
@@ -138,6 +139,11 @@ public final class HotkeyManager {
                     isFnDown = false
                 }
             }
+        } else if !flags.contains(.function) && isFnDown {
+            isFnDown = false
+            if activeHotkey == .fnHold && activeMode == .pushToTalk {
+                onHotkeyUp?()
+            }
         }
 
         // Right Option key (keyCode 61)
@@ -151,11 +157,17 @@ public final class HotkeyManager {
                 } else {
                     onToggle?()
                 }
-            } else if !optPressed && isRightOptionDown {
+            } else if !optPressed {
+                let wasDown = isRightOptionDown
                 isRightOptionDown = false
-                if activeMode == .pushToTalk {
+                if wasDown && activeMode == .pushToTalk {
                     onHotkeyUp?()
                 }
+            }
+        } else if activeHotkey == .rightOption && (flags.rawValue & UInt(NX_DEVICERALTKEYMASK) == 0) && isRightOptionDown {
+            isRightOptionDown = false
+            if activeMode == .pushToTalk {
+                onHotkeyUp?()
             }
         }
 
@@ -169,11 +181,17 @@ public final class HotkeyManager {
                 } else {
                     onToggle?()
                 }
-            } else if !cmdPressed && isRightCommandDown {
+            } else if !cmdPressed {
+                let wasDown = isRightCommandDown
                 isRightCommandDown = false
-                if activeMode == .pushToTalk {
+                if wasDown && activeMode == .pushToTalk {
                     onHotkeyUp?()
                 }
+            }
+        } else if activeHotkey == .rightCommand && (flags.rawValue & UInt(NX_DEVICERCMDKEYMASK) == 0) && isRightCommandDown {
+            isRightCommandDown = false
+            if activeMode == .pushToTalk {
+                onHotkeyUp?()
             }
         }
     }

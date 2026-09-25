@@ -47,6 +47,7 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
 "$TEST_DIR/pill-display"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
+    Sources/Metatron/Core/RescueAudioController.swift \
     Sources/Metatron/App/AppState.swift Sources/Metatron/Engine/TextCleaner.swift \
     Sources/Metatron/Engine/SpeechEngine.swift tests/test_app_state.swift \
     -o "$TEST_DIR/app-state"

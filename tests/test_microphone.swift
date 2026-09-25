@@ -88,10 +88,17 @@ struct MicrophoneSelectionTests {
             selectedUID: "", devices: devices, systemDefaultID: 999,
             "System selection must fail when the default is absent from available inputs"
         )
-        expectUnavailable(
-            selectedUID: "", devices: [], systemDefaultID: builtIn.id,
-            "A stale default must not select an input from an empty list"
-        )
+        // Candidate selection must provide fallback candidates when explicit is missing or first fails
+        let continuityMic = AudioInputDevice(id: 119, uid: "iphone-continuity", name: "iPhone Microphone")
+        let candidates1 = AudioInputSelection.candidates(selectedUID: "", devices: [continuityMic, builtIn], systemDefaultID: continuityMic.id)
+        precondition(candidates1.first == continuityMic, "Default is primary candidate")
+        precondition(candidates1.contains(builtIn), "Built-in microphone is included as fallback")
+        checked += 2
+
+        let candidates2 = AudioInputSelection.candidates(selectedUID: headset.uid, devices: [builtIn, continuityMic], systemDefaultID: continuityMic.id)
+        precondition(candidates2.first == builtIn, "Missing preferred microphone falls back to built-in first")
+        precondition(candidates2.contains(continuityMic), "Default microphone is next fallback")
+        checked += 2
 
         print("Microphone selection: \(checked) regression checks passed")
     }

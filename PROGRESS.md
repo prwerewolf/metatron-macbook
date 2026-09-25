@@ -45,8 +45,26 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
    - **Dynamic Excision & Chained Undo Correction**: Replaced static match iteration with dynamic live-string re-matching in `TextCleaner.swift` and added support for chained undo phrases (`"meeting at four, scratch that, cancel that, five"` -> `"meeting at five"`), while preserving noun phrases (`"a scratch that hurts"`).
    - **Multi-Display Topology Auto-Recovery**: Added an observer for `NSApplication.didChangeScreenParametersNotification` in `FloatingPillWindow.swift` to automatically re-anchor the floating pill to the main screen if an external display is disconnected.
 
+9. **Multi-Device Fallback Cascade (`AudioInputSelection.candidates`)**:
+   - Dynamic prioritized candidate resolution (`preferred -> built-in -> system default -> AUHAL default`).
+   - Prevents capture failures and freezes when an input device (e.g., iPhone Continuity Camera mic) enters an invalid or non-responsive AUHAL state (`Input:No | Output:No`, error `1852797029`).
+
+10. **Unconditional Hotkey Modifier Unlatching (`HotkeyManager.swift`)**:
+   - Modifier releases and unexpected `flagsChanged` events unconditionally reset `isFnDown`, `isRightOptionDown`, and `isRightCommandDown`.
+   - `startRecording()` and `onRecordingError` explicitly call `resetModifierStates()` to guarantee modifier flags can never stay latched after an error.
+
+11. **Persistent Audio Rescue System & Menu Bar Recovery (`RescueAudioController.swift`)**:
+   - Raw recorded audio is persisted to `~/Library/Application Support/Metatron/last_recording.wav` with a JSON metadata manifest.
+   - Speech audio is never discarded on device errors or transcription timeouts.
+   - Added **"Transcribe Last Recording"** menu bar status item with duration readout (`AppDelegate.swift`), enabling instant one-click recovery to the clipboard at any time.
+
+12. **Zero-Orphan Process Watchdog (`whisper_daemon.py` & `LocalDaemonClient.swift`)**:
+   - `METATRON_PARENT_PID` environment propagation to spawned daemons.
+   - Background POSIX watchdog thread in Python terminates the daemon within 1 second if the parent app exits or is force-quit.
+   - Explicit `terminateLaunchedDaemon()` hook in `AppDelegate.applicationWillTerminate`.
+
 ### Verification Status
-- All test suites passing (`make test`), including 13 cleaner test groups, 6 insertion target tests, 8 hotkey tests, 15 app state tests, and 36 Python daemon unit tests (100% pass rate).
+- All test suites passing (`make test`), including 13 cleaner test groups, 13 insertion destination tests, 35 hotkey tests, 14 microphone selection tests, 14 audio conversion/configuration tests, 9 pill display tests, app state rescue tests, and 36 Python daemon unit tests (100% pass rate).
 - App bundle cleanly compiles, packages, and codesigns with persistent identity 'Metatron Development' (`make build`).
 
 ---
@@ -62,6 +80,7 @@ Metatron is a 100% offline, local-first push-to-talk speech dictation app for Ap
 ## Architectural Context & Gotchas
 
 - **Strict Offline Enforcement**: The Python daemon sets `sys.addaudithook(deny_network_access)` to block socket connections and DNS lookups at the interpreter level. Any feature or dependency that introduces network calls will be blocked and will fail tests.
+- **Audio Rescue Invariant**: Speech audio is saved to `RescueAudioController` whenever recording finishes or encounters an error after >= 1.0s of speech. The temporary file in `/tmp` is removed to prevent disk leaks while preserving user voice data in Application Support.
 - **Standalone Undo vs. Mid-Utterance**: `TextCleaner.isStandaloneUndoCommand` preserves bare undo commands so `AppState` can inspect them before text insertion and trigger `Cmd+Z`. Mid-utterance commands are handled separately in `cleanScratchThatPhrases`.
 - **Accessibility Permissions**: Virtual keystroke insertion (`Cmd+V`, `Cmd+Z`) and focused element inspection require macOS Accessibility permissions. If ungranted, clipboard fallback is used.
 - **GUI Process `PATH`**: Apps launched by Finder may not inherit Homebrew paths. Pass decoded NumPy audio to MLX Whisper, rather than a WAV filename that would make the dependency call `ffmpeg`. Metatron's PCM16 WAV format is validated before inference.
