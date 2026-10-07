@@ -39,20 +39,20 @@ __pycache__/
 *.sqlite3
 *.db
 last_recording*
-recordings/
-transcripts/
-history/
-logs/
-runtime/
+/recordings/
+/transcripts/
+/history/
+/logs/
+/runtime/
 
 # Model downloads and generated distribution files
-models/
+/models/
 *.safetensors
 *.npz
 *.pt
 *.pth
 *.onnx
-dist/
+/dist/
 *.zip
 *.dmg
 *.pkg
@@ -67,7 +67,7 @@ dist/
 .ssh/
 credentials*
 secrets*
-private/
+/private/
 *.bundle
 *.bak
 *.backup

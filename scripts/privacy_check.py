@@ -198,9 +198,9 @@ def history_path_findings(refs, deny_terms):
             metadata, raw_path = entry.split(b"\t", 1)
             mode, kind, oid = metadata.split()
             path = raw_path.decode()
-            if path in seen:
+            if (path, mode) in seen:
                 continue
-            seen.add(path)
+            seen.add((path, mode))
             labels = set()
             if private_path(path):
                 labels.add("private or generated file in history")

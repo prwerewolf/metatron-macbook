@@ -20,7 +20,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
   environment variables, and has an explicit offline mode. MLX requires macOS 14+.
 - Building packages the daemon without replacing a user's running runtime.
 - Isolated audio recovery tests from real Application Support data.
-- Verified all Swift regression suites, 52 Python tests, the source privacy
+- Verified all Swift regression suites, 54 Python tests, the source privacy
   check, and a signed release build. Fresh online dependency/model installation
   has not been exercised on a second Mac; model setup is covered with mocked
   downloads and temporary caches.

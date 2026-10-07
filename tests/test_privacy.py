@@ -109,6 +109,36 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("non-public commit identity", result.stderr)
 
+    def test_hook_install_preserves_a_shared_global_hooks_preference(self):
+        global_config = self.repo / "shared-settings"
+        original = "[core]\n\thooksPath = existing-hooks\n"
+        global_config.write_text(original)
+        custom = dict(self.env, GIT_CONFIG_GLOBAL=str(global_config))
+        result = subprocess.run(["bash", str(ROOT / "scripts" / "install_hooks.sh")],
+                                cwd=self.repo, env=custom, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(global_config.read_text(), original)
+        local = subprocess.run(["git", "config", "--local", "--get", "core.hooksPath"],
+                               cwd=self.repo, env=custom, capture_output=True, text=True)
+        self.assertEqual(local.returncode, 1)
+
+    def test_historical_symlink_is_detected_even_with_an_identical_regular_blob(self):
+        file = self.repo / "safe.txt"
+        file.write_text("target")
+        self.git("add", "safe.txt")
+        self.git("commit", "-qm", "Regular file")
+        file.unlink()
+        file.symlink_to("target")
+        self.git("add", "safe.txt")
+        self.git("commit", "-qm", "Symlink using the same blob")
+        file.unlink()
+        file.write_text("target")
+        self.git("add", "safe.txt")
+        self.git("commit", "-qm", "Regular file restored")
+        result = self.check("--history", "--ref", "HEAD")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("symlink or submodule in history", result.stderr)
+
     def test_local_identity_list_stays_ignored_and_values_are_redacted(self):
         phrase = "Synthetic Private Identity"
         (self.repo / ".gitignore").write_text(privacy.LOCAL_CONFIG + "\n")
