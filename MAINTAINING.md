@@ -26,6 +26,12 @@ activate downloaded hooks on clone; setup or `make install-hooks` activates them
 once per checkout. Confirm `git config --get core.hooksPath` reports `.githooks`
 before publishing from another machine.
 
+The public repository also has secret scanning and secret push protection
+enabled. `main` requires passing **Privacy checks** and **macOS regression tests**
+from GitHub Actions; the rules apply to administrators too. Force pushes and
+branch deletion are disabled, and history must remain linear. Keep these
+protections enabled and let the validated fast-forward route below satisfy them.
+
 ## Publish an update
 
 1. Check the branch, upstream, working tree, and latest remote state. Fast-forward

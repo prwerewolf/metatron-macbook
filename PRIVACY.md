@@ -46,6 +46,12 @@ active after setup on each checkout. Neither requires a Codex skill. AGENTS.md
 adds standing instructions for coding agents. Keep the hooks and repository
 checks enabled, use the neutral commit wrapper, and review every outgoing diff.
 
+The public repository has GitHub secret scanning and secret push protection
+enabled for supported credential patterns. The official `main` branch requires
+passing privacy and macOS checks, including for the repository administrator,
+and blocks force pushes and deletion. These server controls supplement the local
+checks; they do not recognize every possible personal name, identifier, or image.
+
 Automated checks detect common credentials, home paths, real email addresses,
 private file types, and locally configured identity terms. They cannot recognize
 every name, screenshot, transcript, or identifier. Review each staged diff and
