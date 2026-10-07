@@ -202,7 +202,7 @@ class EngineTests(unittest.TestCase):
         return result
 
     def test_vocabulary_is_sent_to_recognizer_as_initial_prompt(self):
-        result = self.transcribe("Metatron", [" Metatron ", "MLX", "metatron", "", "Sample User"])
+        result = self.transcribe("Metatron", [" Metatron ", "MLX", "metatron", "", "Sample\nUser"])
         self.assertTrue(result["success"])
         self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "Metatron, MLX, Sample User")
         self.assertEqual(self.engine.transcribe.call_args.kwargs["path_or_hf_repo"], "/local/model")

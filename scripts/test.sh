@@ -46,11 +46,11 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
     -o "$TEST_DIR/pill-display"
 "$TEST_DIR/pill-display"
 
-swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
+swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library -D PRESSTOWRITE_TESTING \
     Sources/PressToWrite/Core/RescueAudioController.swift \
     Sources/PressToWrite/App/AppState.swift Sources/PressToWrite/Engine/TextCleaner.swift \
     Sources/PressToWrite/Engine/SpeechEngine.swift tests/test_app_state.swift \
     -o "$TEST_DIR/app-state"
-"$TEST_DIR/app-state"
+PRESSTOWRITE_TEST_RESCUE_DIR="$TEST_DIR/rescue" "$TEST_DIR/app-state"
 
 python3 -B -m unittest discover -s tests -p 'test_*.py'

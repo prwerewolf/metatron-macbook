@@ -4,7 +4,7 @@ import Foundation
 struct TestRunner {
     static func main() {
         let cleaner = TextCleaner.shared
-        cleaner.customVocabulary = ["Metatron", "M4 Max", "Wispr Flow", "macOS"]
+        cleaner.customVocabulary = ["Metatron", "Apple Silicon", "macOS"]
 
         print("==================================================")
         print("  Running Metatron TextCleaner Verification Tests")
@@ -38,12 +38,12 @@ struct TestRunner {
         print("  ✓ PASSED\n")
 
         // Test 4: Custom Vocabulary
-        let input4 = "i am running metatron on my m4 max on macos period"
+        let input4 = "i am running metatron on apple silicon on macos period"
         let output4 = cleaner.clean(text: input4, style: .natural)
         print("Test 4 (Custom Vocabulary):")
         print("  Raw:      '\(input4)'")
         print("  Output:   '\(output4)'")
-        assert(output4 == "i am running Metatron on my M4 Max on macOS period", "Test 4 Failed: custom vocabulary capitalization failed: \(output4)")
+        assert(output4 == "i am running Metatron on Apple Silicon on macOS period", "Test 4 Failed: custom vocabulary capitalization failed: \(output4)")
         print("  ✓ PASSED\n")
 
         // Test 5: Whisper Hallucination / Repetition Loop Deduplication
@@ -121,7 +121,7 @@ struct TestRunner {
             " \tmetatron  um I I period\n\n",
             "I, I said comma new line bullet one.",
             "Repeat this. Repeat this. Repeat this.",
-            "macos metatron m4 max",
+            "macos metatron apple silicon",
             "\n \t\n",
             ""
         ]

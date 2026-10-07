@@ -17,8 +17,16 @@ public final class RescueAudioController: @unchecked Sendable {
 
     private init() {
         let fileManager = FileManager.default
+        #if PRESSTOWRITE_TESTING
+        // Regression tests must never overwrite or delete a user's last recording.
+        guard let testDirectory = ProcessInfo.processInfo.environment["PRESSTOWRITE_TEST_RESCUE_DIR"] else {
+            preconditionFailure("Tests require an isolated rescue audio directory")
+        }
+        let base = URL(fileURLWithPath: testDirectory, isDirectory: true)
+        #else
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let base = appSupport.appendingPathComponent("Press To Write", isDirectory: true)
+        #endif
         try? fileManager.createDirectory(at: base, withIntermediateDirectories: true)
         self.appSupportURL = base
         self.rescueWavURL = base.appendingPathComponent("last_recording.wav")

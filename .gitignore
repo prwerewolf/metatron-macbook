@@ -12,3 +12,62 @@ Resources/AppIcon.iconset/
 __pycache__/
 *.pyc
 
+# Private configuration and machine-local preferences
+.env
+.env.*
+!.env.example
+.privacy-local.json
+*.local
+*.local.*
+.codex/
+.agents/
+.idea/
+.vscode/
+.swiftpm/
+.python-version
+.tool-versions
+.cache/
+
+# Recordings, transcripts, logs, databases, and runtime state
+*.aiff
+*.aif
+*.caf
+*.mp3
+*.m4a
+*.flac
+*.sqlite
+*.sqlite3
+*.db
+last_recording*
+recordings/
+transcripts/
+history/
+logs/
+runtime/
+
+# Model downloads and generated distribution files
+models/
+*.safetensors
+*.npz
+*.pt
+*.pth
+*.onnx
+dist/
+*.zip
+*.dmg
+*.pkg
+
+# Signing material, credentials, and private backups
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+.aws/
+.ssh/
+credentials*
+secrets*
+private/
+*.bundle
+*.bak
+*.backup

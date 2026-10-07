@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
@@ -35,13 +35,10 @@ chmod +x "$MACOS_DIR/$TARGET_NAME"
 # 4. Copy Info.plist
 cp "$DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 
-# 5. Copy local MLX daemon to resources and Application Support
+# 5. Package the daemon. The app stages its own script when launched; building
+# alone must not replace a running user's Application Support files.
 cp "$DIR/daemon/whisper_daemon.py" "$RESOURCES_DIR/whisper_daemon.py"
 chmod +x "$RESOURCES_DIR/whisper_daemon.py"
-APP_SUPPORT_DIR="$HOME/Library/Application Support/Press To Write"
-mkdir -p "$APP_SUPPORT_DIR"
-cp "$DIR/daemon/whisper_daemon.py" "$APP_SUPPORT_DIR/whisper_daemon.py"
-chmod +x "$APP_SUPPORT_DIR/whisper_daemon.py"
 
 # 6. Copy AppIcon.icns & AppIcon_master.png
 if [ -f "$DIR/Resources/AppIcon.icns" ]; then
@@ -85,15 +82,16 @@ authorityKeyIdentifier = keyid,issuer
 EOF
     then
 
+        CERT_PASSWORD="$(openssl rand -hex 24)"
         if openssl req -new -x509 -days 3650 -nodes -config "$CERT_DIR/cert.cnf" \
             -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" 2>/dev/null && \
            { openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
                 -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
-                -password pass:presstowrite -legacy 2>/dev/null || \
+                -password "pass:$CERT_PASSWORD" -legacy 2>/dev/null || \
              openssl pkcs12 -export -out "$CERT_DIR/cert.p12" \
                 -inkey "$CERT_DIR/key.pem" -in "$CERT_DIR/cert.pem" \
-                -password pass:presstowrite 2>/dev/null; } && \
-           security import "$CERT_DIR/cert.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P presstowrite -A; then
+                -password "pass:$CERT_PASSWORD" 2>/dev/null; } && \
+           security import "$CERT_DIR/cert.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P "$CERT_PASSWORD" -A; then
             if has_signing_identity; then
                 echo "Persistent identity '$SIGNING_IDENTITY' is available."
             else

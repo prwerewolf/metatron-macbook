@@ -1,4 +1,4 @@
-.PHONY: all setup build run test stop clean
+.PHONY: all setup build run test privacy install-hooks stop clean
 
 all: build
 
@@ -13,6 +13,12 @@ run:
 
 test:
 	@./scripts/test.sh
+
+privacy:
+	@python3 -B scripts/privacy_check.py
+
+install-hooks:
+	@./scripts/install_hooks.sh
 
 stop:
 	@pkill -f "Press To Write.app/Contents/MacOS/PressToWrite" 2>/dev/null || true

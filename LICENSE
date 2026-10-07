@@ -1,0 +1,67 @@
+Press To Write Unmodified Use License
+Version 1.0, October 7, 2026
+
+Copyright (c) 2026 the Press To Write copyright holders.
+All rights reserved except the limited permissions below.
+
+1. Scope
+
+This license applies to the original Press To Write source code, application,
+documentation, and artwork in this repository (the "Software"). The licensor is
+the copyright holder making the Software available through the official
+repository. Separately licensed third-party software and models are excluded.
+
+2. Permitted use
+
+You may view and inspect the Software; download and make copies solely for your
+own installation or backup; compile the unmodified source; and run unmodified
+official versions free of charge for personal use or internal business use.
+You may share links to the official repository. Keep this license and all
+copyright notices with any copies you are permitted to make.
+
+Changing settings through the application's interface, selecting a microphone,
+choosing a local model, setting documented environment variables, and entering
+your own vocabulary or text replacements are permitted configuration, not
+modification of the Software. Updating to an unmodified official version is
+also permitted. This license places no restrictions on your recordings,
+dictated text, or other output you create using the Software.
+
+3. Restrictions
+
+Without prior written permission from the copyright holder, you may not:
+
+- Modify, adapt, translate, rebrand, or create derivative works of the Software.
+- Sell, resell, rent, lease, sublicense, or charge for access to the Software.
+- Redistribute source or compiled copies, except for copies made within GitHub
+  under the platform rights described in section 4.
+- Incorporate the Software into another product, distribute it as part of a
+  bundle, or offer it to others as a hosted or paid service.
+- Remove or alter this license, copyright notices, or ownership notices.
+
+These restrictions apply only to the extent permitted by applicable law.
+All rights not expressly granted are reserved. No trademark rights are granted.
+This is a source-available license, not an open-source license.
+
+4. GitHub and third-party rights
+
+Nothing in this license limits the rights GitHub or its users receive under
+GitHub's Terms of Service, including viewing and forking a public repository
+within GitHub. A fork does not grant additional rights to modify, sell, or
+redistribute the Software outside those platform rights. Third-party libraries
+and model weights remain governed by their own licenses; this license does not
+restrict rights their respective copyright holders grant you.
+
+5. Termination
+
+The permissions granted by this license terminate automatically if you violate
+its terms. Upon termination, stop using the Software and delete copies except
+where retention is required by law. Rights required by applicable law or
+GitHub's Terms of Service are unaffected.
+
+6. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY LAW,
+THE COPYRIGHT HOLDERS SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY ARISING FROM OR RELATED TO THE SOFTWARE OR ITS USE.

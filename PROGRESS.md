@@ -2,9 +2,31 @@
 
 ## Where We Stand
 
-Press To Write (formerly Metatron) is a 100% offline, local-first push-to-talk speech dictation app for Apple Silicon running macOS 13+. All speech recognition, text cleanup, and system integrations run strictly on-device with zero internet connectivity.
+Press To Write is a local-first push-to-talk speech dictation app for Apple Silicon running macOS 14+. One-time setup installs dependencies and a model; speech recognition, text cleanup, and system integrations then run on-device. The pinned MLX runtime determines the supported macOS version.
 
 ### Recently Completed & Verified
+
+**Community sharing preparation (October 7, 2026):**
+
+- Replaced personal fixtures and machine-specific examples with synthetic values.
+- Added the Unmodified Use License: free use of official unmodified versions,
+  including internal business use; modification, resale, and redistribution
+  require written permission. Third-party dependencies retain their own licenses.
+- Added exclusions for private data, models, signing material, local editor and
+  agent settings, and distribution artifacts. Added staged-file and full-history
+  privacy checks, local commit/push hooks, a neutral commit wrapper, and CI.
+- Added pinned direct runtime dependencies and first-run instructions. Setup
+  creates the Python environment directly in Application Support, supports cache
+  environment variables, and has an explicit offline mode. MLX requires macOS 14+.
+- Building packages the daemon without replacing a user's running runtime.
+- Isolated audio recovery tests from real Application Support data.
+- Verified all Swift regression suites, 52 Python tests, the source privacy
+  check, and a signed release build. Fresh online dependency/model installation
+  has not been exercised on a second Mac; model setup is covered with mocked
+  downloads and temporary caches.
+- Before changing a previously private repository to public, separately verify
+  retained pull-request refs and cached old commits. A branch rewrite alone does
+  not remove those GitHub copies. See PRIVACY.md and MAINTAINING.md.
 
 1. **Launch at Login (`SMAppService`)**:
    - Native macOS 13+ ServiceManagement integration via `LaunchAtLogin.swift`.
