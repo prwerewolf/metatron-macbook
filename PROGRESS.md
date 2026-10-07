@@ -86,10 +86,10 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - Explicit `terminateLaunchedDaemon()` hook in `AppDelegate.applicationWillTerminate`.
 
 13. **macOS TCC Sandbox Immunity via Application Support Runtime**:
-   - Resolved the issue where launching `Metatron.app` outside a terminal session (e.g., from Finder, Dock, Spotlight, or Login Items) failed to start the speech daemon with `PermissionError: [Errno 1] Operation not permitted: '.../.venv/pyvenv.cfg'` due to macOS TCC privacy protection on `~/Documents`.
-   - Mirrored the Python runtime virtual environment to `~/Library/Application Support/Metatron/venv`, which macOS always permits apps to access without prompt or restriction.
+   - Resolved GUI-launch access failures when a checkout under `~/Documents` was used as the speech runtime.
+   - Current setup creates the runtime directly at `~/Library/Application Support/Press To Write/venv`. It does not copy or relocate an existing virtual environment. Legacy runtime paths remain fallback candidates for older installations.
    - Updated `LocalDaemonClient.swift` to automatically sync `whisper_daemon.py` to Application Support and prioritize the Application Support Python environment in `candidatePythonPaths`.
-   - Updated `scripts/build_app.sh` and `scripts/setup_mac.sh` to stage and maintain the Application Support environment automatically.
+   - Setup maintains dependencies in Application Support; building only packages the daemon in the app. The app stages its bundled daemon when launched, leaving user preferences and recovery recordings outside the source checkout.
    - Added `NSDocumentsFolderUsageDescription` in `Resources/Info.plist` for defense-in-depth.
 
 14. **Full Rebrand to Press To Write (`Press To Write.app`)**:
@@ -101,9 +101,18 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - Re-verified full test suite and clean release build.
 
 ### Verification Status
-- All test suites passing (`make test`), including 13 cleaner test groups, 13 insertion destination tests, 35 hotkey tests, 14 microphone selection tests, 14 audio conversion/configuration tests, 9 pill display tests, app state rescue tests, and 36 Python daemon unit tests (100% pass rate).
+- All Swift regression suites passed locally. All 54 Python tests passed: 36 daemon tests, 7 setup tests, and 11 privacy tests.
 - App bundle cleanly compiles, packages, and codesigns with persistent identity 'Press To Write Development' (`make build`).
-- Live app verified running (`Press To Write.app` / `PressToWrite`, PID `10617`) with offline daemon listening on `/tmp/presstowrite.sock`.
+- GitHub's privacy and macOS regression/build jobs passed for the source-sharing implementation at `18ec46f`.
+- Physical Fn/microphone dictation and a fresh online install on a second Mac remain manual onboarding checks. Automated tests use synthetic audio and temporary model caches.
+
+### Publication and handoff
+
+- The official branch is `main`. Source-sharing changes and license are committed and pushed; privacy hooks are installed in the working checkout.
+- The GitHub repository is still private. Six retained legacy pull-request refs can retrieve identifying historical commits despite the published branches being sanitized. Do not change visibility until those copies are removed or the public repository is recreated from verified clean refs.
+- Source, commit identities, and normal uploads are guarded by the privacy checks. Private app preferences and shared local configuration stay outside published files. Repository ownership still identifies the GitHub hosting account.
+- Publication is a GitHub source release. There is no binary-distribution, notarization, website-hosting, or deployment pipeline to run. The installer builds the app on the recipient's Mac.
+- Follow MAINTAINING.md for subsequent updates. After a history rewrite, other machines must start from a clean clone and keep their local preferences outside Git.
 
 ---
 
