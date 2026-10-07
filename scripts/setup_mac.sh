@@ -20,6 +20,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# A normal Git clone gets publication guards during setup. ZIP installs are
+# supported without initializing Git or changing an enclosing project's hooks.
+"$DIR/scripts/prepare_checkout.sh"
+
 echo "Press To Write setup for macOS / Apple Silicon"
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
     echo "Setup requires an Apple Silicon Mac, running the terminal natively (outside Rosetta)."

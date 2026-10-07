@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -121,6 +122,74 @@ class PrivacyTests(unittest.TestCase):
         local = subprocess.run(["git", "config", "--local", "--get", "core.hooksPath"],
                                cwd=self.repo, env=custom, capture_output=True, text=True)
         self.assertEqual(local.returncode, 1)
+
+    def copy_checkout_guards(self, destination):
+        for name in (
+            ".gitignore", ".githooks/pre-commit", ".githooks/pre-push",
+            "scripts/privacy_check.py", "scripts/install_hooks.sh", "scripts/prepare_checkout.sh",
+        ):
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, target)
+
+    def test_setup_preparation_installs_hooks_in_its_own_checkout(self):
+        self.copy_checkout_guards(self.repo)
+        result = subprocess.run(["bash", "scripts/prepare_checkout.sh"], cwd=self.repo,
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("config", "--local", "--get", "core.hooksPath").stdout.strip(), ".githooks")
+        config = self.repo / privacy.LOCAL_CONFIG
+        self.assertTrue(config.is_file())
+        self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.git("check-ignore", privacy.LOCAL_CONFIG).stdout.strip(), privacy.LOCAL_CONFIG)
+        self.assertEqual(self.check().returncode, 0)
+
+    def test_source_archive_never_changes_an_enclosing_repositorys_hooks(self):
+        archive = self.repo / "source-archive"
+        self.copy_checkout_guards(archive)
+        result = subprocess.run(["bash", "scripts/prepare_checkout.sh"], cwd=archive,
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Source archive", result.stdout)
+        self.assertFalse((archive / ".git").exists())
+        self.assertFalse((archive / privacy.LOCAL_CONFIG).exists())
+        local = subprocess.run(["git", "config", "--local", "--get", "core.hooksPath"],
+                               cwd=self.repo, env=self.env, capture_output=True, text=True)
+        self.assertEqual(local.returncode, 1)
+
+    def test_setup_preparation_preserves_existing_hook_preferences(self):
+        self.copy_checkout_guards(self.repo)
+        self.git("config", "core.hooksPath", "existing-hooks")
+        result = subprocess.run(["bash", "scripts/prepare_checkout.sh"], cwd=self.repo,
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.git("config", "--local", "--get", "core.hooksPath").stdout.strip(), "existing-hooks")
+
+    def test_invalid_git_metadata_cannot_silently_skip_the_guards(self):
+        self.copy_checkout_guards(self.repo)
+        shutil.rmtree(self.repo / ".git")
+        (self.repo / ".git").write_text("gitdir: missing-metadata\n")
+        result = subprocess.run(["bash", "scripts/prepare_checkout.sh"], cwd=self.repo,
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not be verified", result.stdout)
+        self.assertEqual((self.repo / ".git").read_text(), "gitdir: missing-metadata\n")
+
+    def test_common_system_account_names_do_not_poison_the_private_identity_list(self):
+        self.git("config", "user.name", privacy.PUBLIC_NAME)
+        self.git("config", "user.email", privacy.PUBLIC_EMAIL)
+        from unittest import mock
+        with mock.patch.object(privacy.getpass, "getuser", return_value="user"):
+            previous = Path.cwd()
+            try:
+                os.chdir(self.repo)
+                privacy.initialize_local_config(self.repo)
+            finally:
+                os.chdir(previous)
+        terms = json.loads((self.repo / privacy.LOCAL_CONFIG).read_text())["deny_terms"]
+        self.assertNotIn("user", terms)
+        self.assertIn(str(Path.home()), terms)
+        self.assertTrue(privacy.content_findings(str(Path.home()).encode(), terms))
 
     def test_historical_symlink_is_detected_even_with_an_identical_regular_blob(self):
         file = self.repo / "safe.txt"

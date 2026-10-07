@@ -7,8 +7,9 @@ or redistribute the application. Bug reports using synthetic examples are welcom
 ## Prepare a checkout
 
 Use a fresh clone of the official repository after any history rewrite. Preserve
-local preferences and keep app data outside the repository. Install the local
-commit and push checks:
+local preferences and keep app data outside the repository. Normal `make setup`
+automatically installs the local commit and push checks in this application's own
+Git checkout. To prepare a maintainer checkout without installing the app, run:
 
 ```bash
 make install-hooks
@@ -17,6 +18,13 @@ make install-hooks
 Existing custom Git hooks are preserved; installation stops if a different hooks
 path is configured. Integrate the privacy checks manually in that case. The
 ignored `.privacy-local.json` file can hold additional private identity terms.
+
+No Codex skill is needed for these protections. `.gitignore` is part of every
+clone, GitHub CI runs automatically, and this repository's AGENTS.md tells coding
+agents to perform the privacy checks on every update. Git does not automatically
+activate downloaded hooks on clone; setup or `make install-hooks` activates them
+once per checkout. Confirm `git config --get core.hooksPath` reports `.githooks`
+before publishing from another machine.
 
 ## Publish an update
 

@@ -14,6 +14,10 @@ import sys
 PUBLIC_NAME = "Press To Write Maintainers"
 PUBLIC_EMAIL = "maintainers@presstowrite.invalid"
 LOCAL_CONFIG = ".privacy-local.json"
+GENERIC_IDENTITIES = {
+    "user", "root", "runner", "admin", "administrator", "developer", "dev",
+    "test", "guest", "mac", "owner",
+}
 ALLOWED_BINARY = {"Resources/AppIcon.icns", "Resources/AppIcon_master.png"}
 PRIVATE_PARTS = {
     ".venv", ".build", ".codex", ".agents", ".aws", ".ssh", ".cache",
@@ -116,7 +120,9 @@ def initialize_local_config(root):
             continue
         if value not in {PUBLIC_NAME, PUBLIC_EMAIL}:
             terms.add(value)
-    terms = {term for term in terms if len(term) >= 3}
+    # Common system account labels also occur throughout ordinary source code.
+    # Home paths and real commit identities remain independently guarded.
+    terms = {term for term in terms if len(term) >= 3 and term.casefold() not in GENERIC_IDENTITIES}
     payload = json.dumps({"deny_terms": sorted(terms)}, indent=2) + "\n"
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w") as output:

@@ -32,11 +32,19 @@ matched values. The commit hook checks the actual staged contents. The push hook
 checks all ancestors of every outgoing ref, so an older commit cannot bypass a
 clean latest snapshot. GitHub Actions repeats the history and file checks.
 
-`make install-hooks` installs local checks and creates an ignored, owner-only
+Normal `make setup` enables the local checks in a Git clone. A source ZIP does
+not initialize Git or change an enclosing repository's settings. Maintainers
+can also run `make install-hooks` directly to prepare a checkout without installing
+the app. This creates an ignored, owner-only
 `.privacy-local.json` containing local identity terms. This file is never a
 publication input. Maintainers can add private names, handles, email addresses,
 and project-specific identifiers to its `deny_terms` list locally. Shared Git
 preferences and app settings are not changed.
+
+GitHub CI is automatic once the repository is published; the local checks are
+active after setup on each checkout. Neither requires a Codex skill. AGENTS.md
+adds standing instructions for coding agents. Keep the hooks and repository
+checks enabled, use the neutral commit wrapper, and review every outgoing diff.
 
 Automated checks detect common credentials, home paths, real email addresses,
 private file types, and locally configured identity terms. They cannot recognize

@@ -17,7 +17,9 @@ Requirements: an **Apple Silicon Mac (M-series), macOS 14 or later**, Xcode Comm
 make setup
 ```
 
-Setup creates a Python environment directly in `~/Library/Application Support/Press To Write/venv`, installs the versions in `requirements.txt`, downloads a speech model if none is already cached, builds the app, and launches it. Initial setup needs internet access and enough disk space for Python dependencies and the model. No API key, account, paid transcription service, or existing virtual environment is required. `ffmpeg` is not needed for dictation.
+Setup creates a Python environment directly in `~/Library/Application Support/Press To Write/venv`, installs the versions in `requirements.txt`, downloads a speech model if none is already cached, builds the app, and launches it. In a Git clone, setup also enables the local commit and push privacy guards. ZIP installs are supported without initializing Git or changing another repository's hooks. Existing custom hooks are preserved and must include the privacy checks before a maintainer publishes updates.
+
+Initial setup needs internet access and enough disk space for Python dependencies and the model. No API key, account, paid transcription service, or existing virtual environment is required. `ffmpeg` is not needed for dictation.
 
 For a particular Python executable, use:
 

@@ -20,7 +20,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
   environment variables, and has an explicit offline mode. MLX requires macOS 14+.
 - Building packages the daemon without replacing a user's running runtime.
 - Isolated audio recovery tests from real Application Support data.
-- Verified all Swift regression suites, 54 Python tests, the source privacy
+- Verified all Swift regression suites, 59 Python tests, the source privacy
   check, and a signed release build. Fresh online dependency/model installation
   has not been exercised on a second Mac; model setup is covered with mocked
   downloads and temporary caches.
@@ -101,7 +101,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - Re-verified full test suite and clean release build.
 
 ### Verification Status
-- All Swift regression suites passed locally. All 54 Python tests passed: 36 daemon tests, 7 setup tests, and 11 privacy tests.
+- All Swift regression suites passed locally. All 59 Python tests passed: 36 daemon tests, 7 setup tests, and 16 privacy tests.
 - App bundle cleanly compiles, packages, and codesigns with persistent identity 'Press To Write Development' (`make build`).
 - GitHub's privacy and macOS regression/build jobs passed for the source-sharing implementation at `18ec46f`.
 - Physical Fn/microphone dictation and a fresh online install on a second Mac remain manual onboarding checks. Automated tests use synthetic audio and temporary model caches.
@@ -111,6 +111,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 - The official branch is `main`. Source-sharing changes and license are committed and pushed; privacy hooks are installed in the working checkout.
 - The GitHub repository is still private. Six retained legacy pull-request refs can retrieve identifying historical commits despite the published branches being sanitized. Do not change visibility until those copies are removed or the public repository is recreated from verified clean refs.
 - Source, commit identities, and normal uploads are guarded by the privacy checks. Private app preferences and shared local configuration stay outside published files. Repository ownership still identifies the GitHub hosting account.
+- Normal setup now enables privacy hooks automatically in its own Git checkout, preserving existing hook preferences and avoiding changes to an enclosing repository for ZIP installs. AGENTS.md gives future coding sessions standing privacy instructions. No custom Codex skill is required. Fresh-checkout setup, existing hooks, source archives, and common system account labels have regression coverage.
 - PR CI checks the combined file tree and macOS behavior, and checks commit identities on the actual proposed branch history. Maintainers land validated PRs with a local fast-forward or a validated neutral-identity integration commit, preserving neutral commit attribution.
 - Publication is a GitHub source release. There is no binary-distribution, notarization, website-hosting, or deployment pipeline to run. The installer builds the app on the recipient's Mac.
 - Follow MAINTAINING.md for subsequent updates. After a history rewrite, other machines must start from a clean clone and keep their local preferences outside Git.
