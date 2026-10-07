@@ -111,6 +111,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 - The official branch is `main`. Source-sharing changes and license are committed and pushed; privacy hooks are installed in the working checkout.
 - The GitHub repository is still private. Six retained legacy pull-request refs can retrieve identifying historical commits despite the published branches being sanitized. Do not change visibility until those copies are removed or the public repository is recreated from verified clean refs.
 - Source, commit identities, and normal uploads are guarded by the privacy checks. Private app preferences and shared local configuration stay outside published files. Repository ownership still identifies the GitHub hosting account.
+- PR CI checks the combined file tree and macOS behavior, and checks commit identities on the actual proposed branch history. Maintainers land validated PRs with a local fast-forward or a validated neutral-identity integration commit, preserving neutral commit attribution.
 - Publication is a GitHub source release. There is no binary-distribution, notarization, website-hosting, or deployment pipeline to run. The installer builds the app on the recipient's Mac.
 - Follow MAINTAINING.md for subsequent updates. After a history rewrite, other machines must start from a clean clone and keep their local preferences outside Git.
 

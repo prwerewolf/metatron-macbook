@@ -38,6 +38,18 @@ ignored `.privacy-local.json` file can hold additional private identity terms.
 7. Verify GitHub Actions passed and the published diff contains only the intended
    public files. Require the privacy check through repository rules when available.
 
+For a reviewed PR whose current head passes CI, preserve the neutral commit
+identities when landing it. If the freshly fetched `main` is an ancestor of the
+validated PR head, fast-forward `main` locally and push it normally. If integration
+is required, create and validate the integration commit with the project identity
+before landing. GitHub-generated merge, squash, and rebase commits can introduce
+account attribution into commit metadata and will fail the history identity rule.
+Do not bypass that rule or the installed hooks.
+
+PR CI checks the combined test-merge files and runs macOS regressions against
+that combined version. The history identity check examines the actual PR head,
+excluding GitHub's temporary test-merge identity, which is not a release commit.
+
 The commit wrapper leaves your global and shared Git settings unchanged. The
 project identity is `Press To Write Maintainers <maintainers@presstowrite.invalid>`.
 GitHub still records the account performing pushes and owning the repository.

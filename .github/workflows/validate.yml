@@ -18,7 +18,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - run: python3 -B scripts/privacy_check.py
-      - run: python3 -B scripts/privacy_check.py --history --ref HEAD
+      - name: Check publishable history
+        # PR checkout includes GitHub's temporary test merge. Scan its combined
+        # files above, and enforce commit identities on the actual outgoing head.
+        env:
+          PUBLIC_HISTORY_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 -B scripts/privacy_check.py --history --ref "$PUBLIC_HISTORY_REF"
       - run: python3 -B -m unittest discover -s tests -p 'test_privacy.py'
 
   regression:
