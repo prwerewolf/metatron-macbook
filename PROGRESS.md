@@ -100,10 +100,19 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - Updated local IPC socket path to `/tmp/presstowrite.sock` with dual environment variable support (`PRESSTOWRITE_MODEL_DIR` / `METATRON_MODEL_DIR`, `PRESSTOWRITE_PYTHON` / `METATRON_PYTHON`).
    - Re-verified full test suite and clean release build.
 
+15. **Context-Aware Prompt Biasing, Hallucination Guard & Output Formatting (October 9, 2026)**:
+   - **Context Extraction (`InsertionTarget.precedingText`)**: Queries the focused control via macOS Accessibility (`kAXSelectedTextRangeAttribute` / `kAXStringForRangeParameterizedAttribute`) with a bounded 200ms IPC timeout, with a 45-second fallback to recent utterance text in the same target application.
+   - **Whisper Prompt Biasing (`whisper_daemon.py`)**: Combines up to 250 characters of preceding document context with custom vocabulary hints into Whisper's `initial_prompt`, giving the decoder instant awareness of sentence flow, casing, and document terminology with zero added latency.
+   - **Mid-Sentence Continuation Casing (`TextCleaner.swift` & `AppState.swift`)**: Detects mid-sentence continuations from preceding context and suppresses start-of-utterance capitalization in Professional style, ensuring seamless multi-turn speech flow.
+   - **Hallucination & Audio Artifact Guard (`TextCleaner.removeAudioArtifacts`)**: Strips phantom Whisper audio descriptors (`[Music]`, `[Applause]`, `(laughter)`, `[Silence]`, etc.) on silence or background noise, allowing quiet audio to reset to "No Speech Detected" rather than inserting ghost text.
+   - **Professional Style by Default**: New installs and unconfigured sessions default to Professional style, enabling spoken punctuation (`comma`, `period`, `new paragraph`), list formatting, and proper capitalization out of the box while preserving Natural and Raw styles.
+   - **Build Script Signing Hardening (`build_app.sh`)**: Added graceful ad-hoc signing fallback if persistent developer identity signing cannot access the keychain or is run non-interactively.
+
 ### Verification Status
-- All Swift regression suites passed locally. All 59 Python tests passed: 36 daemon tests, 7 setup tests, and 16 privacy tests.
-- App bundle cleanly compiles, packages, and codesigns with persistent identity 'Press To Write Development' (`make build`).
-- GitHub's privacy and macOS regression/build jobs passed for the recreated repository's source release at `c72dfca`.
+- All Swift regression suites passed locally (15 cleaner tests, local-daemon-client, 35 hotkeys, 15 insertion-target, 14 microphone, 14 audio-conversion/config, 9 pill-display, and app-state).
+- All 62 Python tests passed: 39 daemon tests, 7 setup tests, and 16 privacy tests.
+- App bundle cleanly compiles, packages, and signs (`make build`).
+- Privacy check passed (`make privacy` across 62 file versions).
 - Physical Fn/microphone dictation and a fresh online install on a second Mac remain manual onboarding checks. Automated tests use synthetic audio and temporary model caches.
 
 ### Publication and handoff

@@ -378,7 +378,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         return listing.split(separator: "\n").first(where: { $0.hasPrefix("n/") }).map { String($0.dropFirst()) }
     }
 
-    public func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle) async throws -> String {
+    public func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle, context: String? = nil) async throws -> String {
         try Task.checkCancellation()
         var currentStatus = await engineStatus()
         // A canceled decode restarts the isolated MLX child. A recording released
@@ -397,19 +397,23 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         }
         let requestID = UUID().uuidString
         let inFlight = InFlightTranscription()
+        var requestPayload: [String: Any] = [
+            "action": "transcribe",
+            "protocol_version": self.protocolVersion,
+            "request_id": requestID,
+            "path": audioFileURL.path,
+            "vocabulary": vocabulary,
+            "style": styleID,
+        ]
+        if let context = context, !context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            requestPayload["context"] = context
+        }
         let text: String = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     do {
                         if inFlight.isCancelled { throw CancellationError() }
-                        let response = try self.request([
-                            "action": "transcribe",
-                            "protocol_version": self.protocolVersion,
-                            "request_id": requestID,
-                            "path": audioFileURL.path,
-                            "vocabulary": vocabulary,
-                            "style": styleID,
-                        ], timeout: 120, inFlight: inFlight)
+                        let response = try self.request(requestPayload, timeout: 120, inFlight: inFlight)
                         if inFlight.isCancelled { throw CancellationError() }
                         guard response["protocol_version"] as? Int == self.protocolVersion else {
                             throw self.engineError("Restart Press To Write to update the local speech engine.")

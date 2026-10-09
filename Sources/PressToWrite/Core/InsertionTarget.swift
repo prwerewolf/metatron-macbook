@@ -86,6 +86,44 @@ public struct InsertionTarget {
         return nil
     }
 
+    /// Attempts to read up to `maxCharacters` immediately preceding the current selection/cursor in the focused element.
+    /// Returns nil if accessibility attributes are unsupported, cursor is at start of text, or text is empty.
+    public func precedingText(
+        maxCharacters: Int = 200,
+        setMessagingTimeout: (AXUIElement, Float) -> AXError = AXUIElementSetMessagingTimeout,
+        copyAttributeValue: (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError = AXUIElementCopyAttributeValue,
+        copyParameterizedAttributeValue: (AXUIElement, CFString, CFTypeRef, UnsafeMutablePointer<CFTypeRef?>) -> AXError = AXUIElementCopyParameterizedAttributeValue
+    ) -> String? {
+        guard maxCharacters > 0 else { return nil }
+        guard let element = focusedElement ?? Self.focus(in: applicationElement) else { return nil }
+        guard setMessagingTimeout(element, 0.2) == .success else { return nil }
+        var rangeValue: CFTypeRef?
+        guard copyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeValue) == .success,
+              let rangeValue,
+              CFGetTypeID(rangeValue) == AXValueGetTypeID() else { return nil }
+
+        let axValue = rangeValue as! AXValue
+        guard AXValueGetType(axValue) == .cfRange else { return nil }
+        var cfRange = CFRange()
+        guard AXValueGetValue(axValue, .cfRange, &cfRange) else { return nil }
+        if cfRange.location <= 0 { return nil }
+
+        let startLocation = max(0, cfRange.location - maxCharacters)
+        let length = cfRange.location - startLocation
+        var textRange = CFRange(location: startLocation, length: length)
+        guard let textRangeVal = AXValueCreate(.cfRange, &textRange) else { return nil }
+        var stringVal: CFTypeRef?
+        guard copyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            textRangeVal,
+            &stringVal
+        ) == .success,
+              let string = stringVal as? String,
+              !string.isEmpty else { return nil }
+        return string
+    }
+
     public var isCurrent: Bool {
         guard let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
               currentPID == processID else { return false }

@@ -221,8 +221,26 @@ struct TestRunner {
         assert(!TextCleaner.isStandaloneUndoCommand(nounPreserve))
         print("Test 13 (Scratch That Voice Correction): ✓ PASSED\n")
 
+        // Test 14: Hallucinated Whisper audio artifacts
+        let artifactOnly = "[Music]"
+        assert(cleaner.clean(text: artifactOnly, style: .professional).isEmpty, "Test 14 Failed: [Music] not removed: '\(cleaner.clean(text: artifactOnly, style: .professional))'")
+        assert(cleaner.clean(text: "(applause)", style: .natural).isEmpty, "Test 14 Failed: (applause) not removed")
+        let mixedArtifact = "We are shipping [Music] today period"
+        assert(cleaner.clean(text: mixedArtifact, style: .professional) == "We are shipping today.", "Test 14 Failed: mixed artifact not cleaned: '\(cleaner.clean(text: mixedArtifact, style: .professional))'")
+        assert(cleaner.clean(text: artifactOnly, style: .raw) == artifactOnly, "Test 14 Failed: raw must preserve verbatim artifacts")
+        print("Test 14 (Hallucinated Audio Artifacts): ✓ PASSED\n")
+
+        // Test 15: Sentence continuation casing
+        let midSentence = "and then we proceed period"
+        let continuationResult = cleaner.clean(text: midSentence, style: .professional, isContinuation: true)
+        assert(continuationResult == "and then we proceed.", "Test 15 Failed: continuation capitalized first letter: '\(continuationResult)'")
+        let newSentenceResult = cleaner.clean(text: midSentence, style: .professional, isContinuation: false)
+        assert(newSentenceResult == "And then we proceed.", "Test 15 Failed: new sentence was not capitalized: '\(newSentenceResult)'")
+        print("Test 15 (Sentence Continuation Casing): ✓ PASSED\n")
+
         print("==================================================")
-        print("  All Metatron TextCleaner Tests PASSED! (13/13)")
+        print("  All Metatron TextCleaner Tests PASSED! (15/15)")
         print("==================================================")
     }
 }
+

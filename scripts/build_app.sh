@@ -105,9 +105,8 @@ EOF
     fi
 fi
 
-if has_signing_identity; then
-    echo "Codesigning bundle with persistent identity '$SIGNING_IDENTITY'..."
-    codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
+if has_signing_identity && codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_BUNDLE" 2>/dev/null; then
+    echo "Codesigned bundle with persistent identity '$SIGNING_IDENTITY'."
 else
     echo "Codesigning bundle with ad-hoc signature (permissions will not persist across rebuilds)..."
     codesign --force --deep --sign - "$APP_BUNDLE"

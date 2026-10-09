@@ -30,15 +30,17 @@ public final class TextCleaner {
     /// removes clear disfluencies; Professional additionally interprets formatting commands.
     public func clean(
         text: String,
-        style: TranscriptionStyle = .natural,
+        style: TranscriptionStyle = .professional,
         vocabulary: [String]? = nil,
-        replacements: [TextReplacement]? = nil
+        replacements: [TextReplacement]? = nil,
+        isContinuation: Bool = false
     ) -> String {
         if style == .raw { return text }
 
         var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.isEmpty { return "" }
 
+        result = removeAudioArtifacts(result)
         result = cleanScratchThatPhrases(result)
         result = removeFillerWords(result)
         result = deduplicateStutters(result)
@@ -48,9 +50,9 @@ public final class TextCleaner {
         if style == .professional {
             result = convertSpokenPunctuation(result)
             result = formatSpokenLists(result)
-            result = normalizePunctuationAndSpacing(result)
+            result = normalizePunctuationAndSpacing(result, isContinuation: isContinuation)
 
-            if let first = result.first, first.isLowercase {
+            if !isContinuation, let first = result.first, first.isLowercase {
                 result = result.prefix(1).uppercased() + result.dropFirst()
             }
         }
@@ -58,6 +60,19 @@ public final class TextCleaner {
         // Apply last so preferred casing such as "macOS" wins over sentence casing.
         result = applyCustomVocabulary(result, terms: vocabulary ?? customVocabulary)
         return applyTextReplacements(result, replacements: replacements ?? customReplacements)
+    }
+
+    /// Removes hallucinated Whisper audio/sound descriptions (e.g. "[Music]", "[Applause]", "(laughter)")
+    private func removeAudioArtifacts(_ text: String) -> String {
+        let pattern = "(?:\\[|\\()(?:[Mm]usic(?: [Pp]laying)?|[Aa]pplause|[Ll]aughter|[Ss]ilence|[Bb]lank[ _][Aa]udio|[Uu]naudible|[Cc]oughs?|[Ss]ighs?|[Bb]ell dings?|[Aa]mbient noise|clear(?:s|ing)? throat)(?:\\]|\\))"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(location: 0, length: text.utf16.count)
+        guard regex.firstMatch(in: text, range: range) != nil else { return text }
+        let cleaned = regex.stringByReplacingMatches(in: text, range: range, withTemplate: " ")
+        if cleaned.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".,!?;:"))).isEmpty {
+            return ""
+        }
+        return cleaned
     }
 
     /// Remove only unambiguous interjections. Preserve meaningful phrases, acronyms
@@ -259,7 +274,7 @@ public final class TextCleaner {
     }
 
     /// Professional formatting: normalize punctuation spacing and sentence casing.
-    private func normalizePunctuationAndSpacing(_ text: String) -> String {
+    private func normalizePunctuationAndSpacing(_ text: String, isContinuation: Bool = false) -> String {
         var str = text
 
         // Replace multiple spaces with a single space
@@ -296,7 +311,8 @@ public final class TextCleaner {
         }
 
         // Capitalize sentences, new lines, and bullet items.
-        if let regex = try? NSRegularExpression(pattern: "(^|[.!?]\\s+|\\n[ \\t]*|•[ \\t]+)([a-z])", options: []) {
+        let pattern = isContinuation ? "([.!?]\\s+|\\n[ \\t]*|•[ \\t]+)([a-z])" : "(^|[.!?]\\s+|\\n[ \\t]*|•[ \\t]+)([a-z])"
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
             let nsStr = str as NSString
             let matches = regex.matches(in: str, options: [], range: NSRange(location: 0, length: str.utf16.count))
             for match in matches.reversed() {

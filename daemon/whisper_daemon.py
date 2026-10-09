@@ -227,6 +227,23 @@ def vocabulary_prompt(vocabulary):
     return ", ".join(terms) if terms else None
 
 
+def build_initial_prompt(vocabulary, context=None):
+    """Combine preceding document context and custom vocabulary within Whisper's prompt limit."""
+    vocab = vocabulary_prompt([] if vocabulary is None else vocabulary)
+    ctx = None
+    if isinstance(context, str):
+        cleaned_ctx = " ".join(context.strip().split())
+        if cleaned_ctx:
+            # Keep up to 250 characters of recent context (~40-50 tokens)
+            ctx = cleaned_ctx[-250:].strip()
+
+    if ctx and vocab:
+        return f"{ctx} {vocab}"
+    elif ctx:
+        return ctx
+    return vocab
+
+
 def load_recorded_audio(audio_path):
     """Decode Metatron's 16 kHz mono PCM16 WAV without invoking ffmpeg."""
     with wave.open(audio_path, "rb") as recording:
@@ -242,11 +259,11 @@ def load_recorded_audio(audio_path):
     return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
-def transcribe_file(audio_path: str, vocabulary=None, style="natural") -> dict:
+def transcribe_file(audio_path: str, vocabulary=None, style="natural", context=None) -> dict:
     if style not in ("natural", "professional", "raw"):
         return {"error": "Unknown writing style"}
     try:
-        prompt = vocabulary_prompt([] if vocabulary is None else vocabulary)
+        prompt = build_initial_prompt(vocabulary, context=context)
     except ValueError as error:
         return {"error": str(error)}
 
@@ -312,7 +329,8 @@ def inference_process(pipe):
             if message.get("action") != "transcribe":
                 continue
             result = transcribe_file(
-                message["path"], message.get("vocabulary", []), message.get("style", "natural")
+                message["path"], message.get("vocabulary", []), message.get("style", "natural"),
+                context=message.get("context")
             )
             pipe.send({"kind": "result", "request_id": message["request_id"], "result": result})
     except (EOFError, BrokenPipeError):
@@ -335,10 +353,10 @@ class IsolatedInferenceWorker:
         self.thread = threading.Thread(target=self._run, name="metatron-inference-supervisor", daemon=True)
         self.thread.start()
 
-    def submit(self, request_id, path, vocabulary, style):
+    def submit(self, request_id, path, vocabulary, style, context=None):
         future = Future()
         job = {"request_id": request_id, "path": path, "vocabulary": vocabulary,
-               "style": style, "future": future, "cancelled": threading.Event()}
+               "style": style, "context": context, "future": future, "cancelled": threading.Event()}
         with self.lock:
             if request_id in self.jobs:
                 raise ValueError("A transcription with that request ID is already running")
@@ -449,6 +467,7 @@ class IsolatedInferenceWorker:
                                 parent_pipe.send({
                                     "action": "transcribe", "request_id": job["request_id"],
                                     "path": job["path"], "vocabulary": job["vocabulary"], "style": job["style"],
+                                    "context": job.get("context"),
                                 })
                                 active_job = job
                             except (BrokenPipeError, OSError):
@@ -537,7 +556,8 @@ def handle_connection(conn, worker):
                 raise ValueError("A valid transcription request ID is required")
             # Ping and cancel never wait behind the single MLX worker.
             response = worker.submit(
-                request_id, req.get("path", ""), req.get("vocabulary", []), req.get("style", "natural")
+                request_id, req.get("path", ""), req.get("vocabulary", []), req.get("style", "natural"),
+                context=req.get("context")
             ).result()
         elif action == "cancel":
             response = {"success": True, "cancelled": worker.cancel(req.get("request_id"))}

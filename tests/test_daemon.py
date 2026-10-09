@@ -185,7 +185,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(daemon.active_model_path, "/local/fallback")
         self.assertEqual([call.kwargs["path_or_hf_repo"] for call in self.engine.transcribe.call_args_list], ["/local/primary", "/local/fallback"])
 
-    def transcribe(self, text, vocabulary=None, style="natural", error=None):
+    def transcribe(self, text, vocabulary=None, style="natural", error=None, context=None):
         self.warm_engine()
         self.engine.transcribe.reset_mock()
         self.engine.transcribe.return_value = {
@@ -197,7 +197,7 @@ class EngineTests(unittest.TestCase):
                 mock.patch.object(daemon, "complete_model_folder", return_value=True), \
                 mock.patch.object(daemon, "load_recorded_audio", return_value="synthetic samples"), \
                 mock.patch.object(daemon.os, "remove") as remove:
-            result = daemon.transcribe_file("/temporary/audio.wav", vocabulary, style)
+            result = daemon.transcribe_file("/temporary/audio.wav", vocabulary, style, context=context)
         remove.assert_called_once_with("/temporary/audio.wav")
         return result
 
@@ -210,6 +210,16 @@ class EngineTests(unittest.TestCase):
     def test_empty_vocabulary_does_not_add_a_prompt(self):
         self.transcribe("Hello", [])
         self.assertIsNone(self.engine.transcribe.call_args.kwargs["initial_prompt"])
+
+    def test_context_and_vocabulary_combined_in_initial_prompt(self):
+        result = self.transcribe("Hello", ["Metatron", "Swift"], context="We are testing this with")
+        self.assertTrue(result["success"])
+        self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "We are testing this with Metatron, Swift")
+
+    def test_context_alone_used_as_initial_prompt(self):
+        result = self.transcribe("Hello", [], context="Continuing this thought,")
+        self.assertTrue(result["success"])
+        self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "Continuing this thought,")
 
     def test_pcm16_wav_is_scaled_and_passed_as_samples_instead_of_path(self):
         class FakeSamples:
@@ -376,8 +386,20 @@ class DaemonConnectionTests(unittest.TestCase):
         worker = mock.Mock()
         worker.submit.return_value.result.return_value = {"text": " Metatron "}
         daemon.handle_connection(connection, worker)
-        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Metatron"], "raw")
+        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Metatron"], "raw", context=None)
         self.assertEqual(json.loads(connection.sendall.call_args.args[0])["text"], " Metatron ")
+
+    def test_transcription_forwards_context(self):
+        connection = self.make_connection(json.dumps({
+            "action": "transcribe", "protocol_version": daemon.PROTOCOL_VERSION,
+            "request_id": self.REQUEST_ID, "path": "/unused",
+            "vocabulary": ["Metatron"], "style": "natural", "context": "Preceding text",
+        }).encode() + b"\n")
+        worker = mock.Mock()
+        worker.submit.return_value.result.return_value = {"text": " Result "}
+        daemon.handle_connection(connection, worker)
+        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Metatron"], "natural", context="Preceding text")
+        self.assertEqual(json.loads(connection.sendall.call_args.args[0])["text"], " Result ")
 
     def test_cancel_never_queues_behind_inference(self):
         connection = self.make_connection(json.dumps({

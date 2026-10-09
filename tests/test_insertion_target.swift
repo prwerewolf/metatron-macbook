@@ -120,6 +120,45 @@ struct InsertionTargetTests {
         )
         precondition(charContext == .character("W"), "Location > 0 must report preceding character")
 
-        print("All Metatron insertion destination tests passed (\(scenarios.count + 7) scenarios).")
+        // Test precedingText: location 0 returns nil
+        let zeroText = targetWithElement.precedingText(
+            setMessagingTimeout: { _, _ in .success },
+            copyAttributeValue: { _, attr, result in
+                if attr as String == kAXSelectedTextRangeAttribute as String {
+                    result.pointee = zeroAxVal
+                    return .success
+                }
+                return .attributeUnsupported
+            }
+        )
+        precondition(zeroText == nil, "Location 0 must report nil preceding text")
+
+        // Test precedingText: location > 0 returns preceding substring
+        var queriedRange = CFRange()
+        let midText = targetWithElement.precedingText(
+            maxCharacters: 50,
+            setMessagingTimeout: { _, _ in .success },
+            copyAttributeValue: { _, attr, result in
+                if attr as String == kAXSelectedTextRangeAttribute as String {
+                    result.pointee = midAxVal
+                    return .success
+                }
+                return .attributeUnsupported
+            },
+            copyParameterizedAttributeValue: { _, attr, param, result in
+                if attr as String == kAXStringForRangeParameterizedAttribute as String {
+                    let axRange = param as! AXValue
+                    AXValueGetValue(axRange, .cfRange, &queriedRange)
+                    result.pointee = "Hello" as CFString
+                    return .success
+                }
+                return .attributeUnsupported
+            }
+        )
+        precondition(midText == "Hello", "Location > 0 must report preceding text")
+        precondition(queriedRange.location == 0 && queriedRange.length == 5, "Queried range must cover prefix up to location 5")
+
+        print("All Metatron insertion destination tests passed (\(scenarios.count + 9) scenarios).")
     }
 }
+

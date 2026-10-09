@@ -89,7 +89,7 @@ public final class AppState: ObservableObject {
         }
     }
 
-    @Published public var transcriptionStyle: TranscriptionStyle = .natural {
+    @Published public var transcriptionStyle: TranscriptionStyle = .professional {
         didSet {
             UserDefaults.standard.set(transcriptionStyle.rawValue, forKey: "metatron_style")
         }
@@ -188,6 +188,8 @@ public final class AppState: ObservableObject {
         if let rawStyle = UserDefaults.standard.string(forKey: "metatron_style"),
            let style = TranscriptionStyle(rawValue: rawStyle) {
             self.transcriptionStyle = style
+        } else {
+            self.transcriptionStyle = .professional
         }
 
         // Retire settings from older builds that offered cloud transcription.
@@ -412,6 +414,17 @@ public final class AppState: ObservableObject {
         let vocabulary = TextCleaner.shared.customVocabulary
         let replacements = TextCleaner.shared.customReplacements
         let style = transcriptionStyle
+        var contextText = target?.precedingText()
+        if contextText == nil || contextText?.isEmpty == true {
+            if let lastTime = self.lastInsertionTime,
+               let lastPID = self.lastInsertionPID,
+               let currentPID = target?.targetPID,
+               lastPID == currentPID,
+               Date().timeIntervalSince(lastTime) < 45.0,
+               !self.lastTranscribedText.isEmpty {
+                contextText = String(self.lastTranscribedText.suffix(200))
+            }
+        }
         let requestID = UUID()
         transcriptionID = requestID
         processingAudioURL = audioURL
@@ -443,12 +456,18 @@ public final class AppState: ObservableObject {
 
             do {
                 let recognitionStartedAt = ProcessInfo.processInfo.systemUptime
-                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: style)
+                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: style, context: contextText)
                 NSLog("[Metatron Timing] recognition=%.3fs", ProcessInfo.processInfo.systemUptime - recognitionStartedAt)
                 try Task.checkCancellation()
                 guard self.transcriptionID == requestID else { return }
                 let cleanupStartedAt = ProcessInfo.processInfo.systemUptime
-                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary, replacements: replacements)
+                let isContinuation: Bool
+                if let ctx = contextText?.trimmingCharacters(in: .whitespacesAndNewlines), !ctx.isEmpty {
+                    isContinuation = !".!?\n".contains(ctx.last!)
+                } else {
+                    isContinuation = false
+                }
+                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary, replacements: replacements, isContinuation: isContinuation)
                 NSLog("[Metatron Timing] text_cleanup=%.3fs", ProcessInfo.processInfo.systemUptime - cleanupStartedAt)
 
                 // Standalone Voice Undo: "scratch that", "cancel that", "undo that"

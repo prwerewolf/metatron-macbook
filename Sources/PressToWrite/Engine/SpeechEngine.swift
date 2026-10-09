@@ -19,5 +19,11 @@ public struct LocalEngineStatus: Equatable, Sendable {
 }
 
 public protocol SpeechEngineProtocol {
-    func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle) async throws -> String
+    func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle, context: String?) async throws -> String
+}
+
+public extension SpeechEngineProtocol {
+    func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle) async throws -> String {
+        try await transcribe(audioFileURL: audioFileURL, vocabulary: vocabulary, style: style, context: nil)
+    }
 }

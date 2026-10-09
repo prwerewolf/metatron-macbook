@@ -78,10 +78,10 @@ public final class LocalDaemonClient: SpeechEngineProtocol {
     public var status = LocalEngineStatus(phase: .ready, message: "Ready", model: "test-local-model")
     public var suspend = false
     public var pending: [CheckedContinuation<String, Error>] = []
-    public private(set) var requests: [(vocabulary: [String], style: TranscriptionStyle)] = []
+    public private(set) var requests: [(vocabulary: [String], style: TranscriptionStyle, context: String?)] = []
     public func engineStatus() async -> LocalEngineStatus { status }
-    public func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle) async throws -> String {
-        requests.append((vocabulary, style))
+    public func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle, context: String? = nil) async throws -> String {
+        requests.append((vocabulary, style, context))
         if suspend {
             return try await withCheckedThrowingContinuation { pending.append($0) }
         }
@@ -102,6 +102,7 @@ public struct InsertionTarget {
     public static var current = true
     public static var mockPrecedingChar: Character? = nil
     public static var mockCursorContext: CursorContext? = nil
+    public static var mockPrecedingText: String? = nil
     public static func capture() -> InsertionTarget? { InsertionTarget() }
     public var isCurrent: Bool { Self.current }
     public var targetPID: pid_t { 123 }
@@ -113,6 +114,9 @@ public struct InsertionTarget {
     public func precedingCharacter() -> Character? {
         if case .character(let char) = cursorContext() { return char }
         return nil
+    }
+    public func precedingText(maxCharacters: Int = 200) -> String? {
+        Self.mockPrecedingText
     }
 }
 
@@ -399,6 +403,19 @@ struct AppStateTests {
         RescueAudioController.shared.clearRescueAudio()
         try? FileManager.default.removeItem(at: testRescueAudio)
 
-        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, smart spacing, undo command, click guard, rescue audio, and unchanged clipboard fallback.")
+        // Context-aware prompt biasing & continuation test
+        InsertionTarget.mockPrecedingText = "We are continuing this sentence and "
+        engine.result = .success("reaching the conclusion period")
+        state.startRecording()
+        try await Task.sleep(nanoseconds: 260_000_000)
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(engine.requests.last!.context == "We are continuing this sentence and ",
+                     "Engine must receive preceding text context")
+        precondition(state.lastTranscribedText == "reaching the conclusion.",
+                     "Continuation must preserve lowercase first letter")
+        InsertionTarget.mockPrecedingText = nil
+
+        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, smart spacing, undo command, click guard, rescue audio, context biasing, and unchanged clipboard fallback.")
     }
 }
