@@ -1,9 +1,12 @@
-.PHONY: all setup build run test privacy install-hooks stop clean
+.PHONY: all setup setup-fast build run test privacy install-hooks stop clean
 
 all: build
 
 setup:
 	@./scripts/setup_mac.sh
+
+setup-fast:
+	@python3 -B scripts/setup_fast.py
 
 build:
 	@./scripts/build_app.sh

@@ -1,5 +1,18 @@
 import Foundation
 
+public enum SpeechMode: String, CaseIterable, Identifiable, Sendable {
+    case accuracy
+    case fast
+
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .accuracy: return "Accuracy — Whisper"
+        case .fast: return "Fast — Nemotron English"
+        }
+    }
+}
+
 public struct LocalEngineStatus: Equatable, Sendable {
     public enum Phase: Equatable, Sendable {
         case loading

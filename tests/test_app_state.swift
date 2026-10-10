@@ -47,7 +47,9 @@ public final class AudioRecorder {
     public var onRecordingError: ((Error, URL?) -> Void)?
     public private(set) var recordings: [URL] = []
     public var removeOnStop = false
-    public func startRecording() throws -> URL {
+    public var pcmCallback: ((Data) -> Void)?
+    public func startRecording(onPCM16: ((Data) -> Void)? = nil) throws -> URL {
+        pcmCallback = onPCM16
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("metatron-state-test-\(UUID().uuidString)")
         try Data([0]).write(to: url)
@@ -79,12 +81,38 @@ public final class LocalDaemonClient: SpeechEngineProtocol {
     public var suspend = false
     public var pending: [CheckedContinuation<String, Error>] = []
     public private(set) var requests: [(vocabulary: [String], style: TranscriptionStyle, context: String?)] = []
-    public func engineStatus() async -> LocalEngineStatus { status }
+    public func engineStatus(mode: SpeechMode = .accuracy) async -> LocalEngineStatus { status }
+    public private(set) var streams: [LocalStreamingSession] = []
+    public func startStreaming(vocabulary: [String]) -> LocalStreamingSession {
+        let session = LocalStreamingSession(vocabulary: vocabulary, result: result)
+        streams.append(session)
+        return session
+    }
     public func transcribe(audioFileURL: URL, vocabulary: [String], style: TranscriptionStyle, context: String? = nil) async throws -> String {
         requests.append((vocabulary, style, context))
         if suspend {
             return try await withCheckedThrowingContinuation { pending.append($0) }
         }
+        return try result.get()
+    }
+}
+
+public final class LocalStreamingSession {
+    public let vocabulary: [String]
+    public let result: Result<String, Error>
+    public private(set) var frames: [Data] = []
+    public private(set) var cancelled = false
+    public private(set) var finished = false
+    init(vocabulary: [String], result: Result<String, Error>) {
+        self.vocabulary = vocabulary
+        self.result = result
+    }
+    public func appendPCM16(_ pcm: Data) { frames.append(pcm) }
+    public func cancel() { if !finished { cancelled = true } }
+    public func finish() async throws -> String {
+        try Task.checkCancellation()
+        if cancelled { throw CancellationError() }
+        finished = true
         return try result.get()
     }
 }
@@ -160,12 +188,12 @@ public final class TextInserter {
 @main
 struct AppStateTests {
     @MainActor
-    static func waitUntil(_ condition: () -> Bool) async throws {
+    static func waitUntil(line: Int = #line, _ condition: () -> Bool) async throws {
         for _ in 0..<2000 {
             if condition() { return }
             try await Task.sleep(nanoseconds: 2_000_000)
         }
-        preconditionFailure("Timed out waiting for state transition")
+        preconditionFailure("Timed out waiting for state transition at test line \(line)")
     }
 
     @MainActor
@@ -173,6 +201,7 @@ struct AppStateTests {
         let state = AppState.shared
         let recorder = AudioRecorder.shared
         let engine = LocalDaemonClient.shared
+        precondition(state.speechMode == .accuracy, "Whisper must remain the default")
         defer {
             for url in recorder.recordings { try? FileManager.default.removeItem(at: url) }
         }
@@ -368,6 +397,41 @@ struct AppStateTests {
         precondition(state.statusMessage == "Ready")
         state.minRecordingDuration = 0
 
+        // Fast mode streams merged manual/remembered vocabulary and still uses
+        // the same cleanup/paste pipeline. Release must finish the owned stream.
+        state.autoInsertText = false
+        state.autoCopyToClipboard = false
+        let previousVocabulary = state.customVocabularyText
+        state.customVocabularyText = "Lumora, Acmetron"
+        state.speechMode = .fast
+        await state.refreshEngineStatus()
+        try await waitUntil { state.engineStatus.phase == .ready }
+        engine.result = .success("lumora has the latest project plan")
+        let whisperRequests = engine.requests.count
+        state.startRecording()
+        let fastSession = engine.streams.last!
+        precondition(fastSession.vocabulary.contains("Lumora"))
+        recorder.pcmCallback?(Data([1, 0, 2, 0]))
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(fastSession.finished && fastSession.frames.count == 1)
+        precondition(engine.requests.count == whisperRequests, "Fast release must not invoke batch Whisper")
+        precondition(state.lastTranscribedText.contains("Lumora"))
+        state.startRecording()
+        let cancelledStream = engine.streams.last!
+        state.cancelDictation(showFeedback: false)
+        precondition(cancelledStream.cancelled)
+        state.minRecordingDuration = 0.25
+        state.startRecording()
+        let shortStream = engine.streams.last!
+        state.stopRecordingAndTranscribe()
+        precondition(shortStream.cancelled && !shortStream.finished)
+        state.minRecordingDuration = 0
+        state.customVocabularyText = previousVocabulary
+        state.speechMode = .accuracy
+        await state.refreshEngineStatus()
+        try await waitUntil { state.engineStatus.phase == .ready }
+
         // Smart Prefix Spacing tests
         let testTarget = InsertionTarget()
         InsertionTarget.mockPrecedingChar = nil
@@ -462,6 +526,18 @@ struct AppStateTests {
         precondition(state.learnedVocabulary == ["Lumora"] && state.correctionSuggestions.isEmpty)
         precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] == ["Lumora"])
         precondition(state.customVocabularyText == "Sample User, Metatron", "Learning must preserve manual vocabulary")
+
+        // Remembered corrections also reach the fast recognizer as real hints.
+        state.speechMode = .fast
+        await state.refreshEngineStatus()
+        try await waitUntil { state.engineStatus.phase == .ready }
+        state.startRecording()
+        precondition(engine.streams.last!.vocabulary.contains("Lumora"))
+        precondition(engine.streams.last!.vocabulary.contains("Metatron"))
+        state.cancelDictation(showFeedback: false)
+        state.speechMode = .accuracy
+        await state.refreshEngineStatus()
+        try await waitUntil { state.engineStatus.phase == .ready }
 
         // Learned terms guide the next utterance; dismissing never reopens the same suggestion.
         InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(text: "", selection: NSRange(location: 0, length: 0))

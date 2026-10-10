@@ -87,6 +87,14 @@ public final class AppState: ObservableObject {
     }
 
     // MARK: - Settings
+    @Published public var speechMode: SpeechMode = .accuracy {
+        didSet {
+            UserDefaults.standard.set(speechMode.rawValue, forKey: "metatron_speech_mode")
+            engineStatus = LocalEngineStatus(phase: .loading, message: "Loading \(speechMode.title)…")
+            Task { await self.refreshEngineStatus() }
+        }
+    }
+
     @Published public var hotkeyChoice: HotkeyChoice = .fnHold {
         didSet {
             UserDefaults.standard.set(hotkeyChoice.rawValue, forKey: "metatron_hotkey")
@@ -144,6 +152,7 @@ public final class AppState: ObservableObject {
     private var transcriptionID: UUID?
     private var processingAudioURL: URL?
     private var insertionTarget: InsertionTarget?
+    private var streamingSession: LocalStreamingSession?
     private var isRefreshingEngine = false
     private var lastInsertionTime: Date?
     private var lastInsertionPID: pid_t?
@@ -165,6 +174,10 @@ public final class AppState: ObservableObject {
     }
 
     private func loadSettings() {
+        if let saved = UserDefaults.standard.string(forKey: "metatron_speech_mode"),
+           let mode = SpeechMode(rawValue: saved) {
+            speechMode = mode
+        }
         if let rawRetention = UserDefaults.standard.string(forKey: "metatron_retention"),
            let retention = HistoryRetention(rawValue: rawRetention) {
             self.historyRetention = retention
@@ -428,7 +441,15 @@ public final class AppState: ObservableObject {
         isRefreshingEngine = true
         defer { isRefreshingEngine = false }
         let previous = engineStatus
-        engineStatus = await LocalDaemonClient.shared.engineStatus()
+        let mode = speechMode
+        let status = await LocalDaemonClient.shared.engineStatus(mode: mode)
+        // A late poll from the old mode must not label the selected mode Ready.
+        guard mode == speechMode else {
+            isRefreshingEngine = false
+            Task { await self.refreshEngineStatus() }
+            return
+        }
+        engineStatus = status
         if !isRecording, !isProcessing, !showSuccess,
            statusMessage == previous.message {
             statusMessage = "Ready"
@@ -458,7 +479,12 @@ public final class AppState: ObservableObject {
             let target = InsertionTarget.capture()
             NSLog("[Metatron Timing] capture_focus=%.3fs", ProcessInfo.processInfo.systemUptime - captureStartedAt)
             let audioStartedAt = ProcessInfo.processInfo.systemUptime
-            let url = try AudioRecorder.shared.startRecording()
+            let session = speechMode == .fast
+                ? LocalDaemonClient.shared.startStreaming(vocabulary: TextCleaner.shared.customVocabulary) : nil
+            streamingSession = session
+            let url = try AudioRecorder.shared.startRecording(onPCM16: session.map { session in
+                { pcm in session.appendPCM16(pcm) }
+            })
             NSLog("[Metatron Timing] start_audio=%.3fs", ProcessInfo.processInfo.systemUptime - audioStartedAt)
             self.insertionTarget = target
             self.activeAudioURL = url
@@ -468,6 +494,8 @@ public final class AppState: ObservableObject {
             SoundEffects.shared.playStart()
         } catch {
             NSLog("[Metatron] Failed to start audio recording: \(error)")
+            streamingSession?.cancel()
+            streamingSession = nil
             self.statusMessage = error.localizedDescription
             HotkeyManager.shared.resetModifierStates()
             SoundEffects.shared.playError()
@@ -483,6 +511,8 @@ public final class AppState: ObservableObject {
         // Accidental Click Guard: Silently discard clicks shorter than minRecordingDuration (default 0.25s)
         if minRecordingDuration > 0 && duration < minRecordingDuration {
             let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
+            streamingSession?.cancel()
+            streamingSession = nil
             if let audioURL, FileManager.default.fileExists(atPath: audioURL.path) {
                 try? FileManager.default.removeItem(at: audioURL)
             }
@@ -507,6 +537,8 @@ public final class AppState: ObservableObject {
 
         let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
         NSLog("[Metatron Timing] stop_audio=%.3fs", ProcessInfo.processInfo.systemUptime - pipelineStartedAt)
+        let session = streamingSession
+        streamingSession = nil
         if let audioURL, FileManager.default.fileExists(atPath: audioURL.path) {
             RescueAudioController.shared.saveRescueAudio(from: audioURL, duration: duration)
         }
@@ -534,6 +566,7 @@ public final class AppState: ObservableObject {
 
         transcriptionTask = Task {
             defer {
+                session?.cancel()
                 NSLog("[Metatron Timing] release_to_completion=%.3fs cancelled=%d", ProcessInfo.processInfo.systemUptime - pipelineStartedAt, Task.isCancelled ? 1 : 0)
                 // Release the recording as soon as processing finishes, independently of feedback.
                 if let url = audioURL, FileManager.default.fileExists(atPath: url.path) {
@@ -556,7 +589,12 @@ public final class AppState: ObservableObject {
 
             do {
                 let recognitionStartedAt = ProcessInfo.processInfo.systemUptime
-                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: style, context: contextText)
+                let rawText: String
+                if let session {
+                    rawText = try await session.finish()
+                } else {
+                    rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: style, context: contextText)
+                }
                 NSLog("[Metatron Timing] recognition=%.3fs", ProcessInfo.processInfo.systemUptime - recognitionStartedAt)
                 try Task.checkCancellation()
                 guard self.transcriptionID == requestID else { return }
@@ -761,6 +799,8 @@ public final class AppState: ObservableObject {
         guard isRecording || isProcessing else { return }
         clearFeedback()
         let recordedURL = isRecording ? AudioRecorder.shared.stopRecording() : nil
+        streamingSession?.cancel()
+        streamingSession = nil
         transcriptionID = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil

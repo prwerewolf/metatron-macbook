@@ -202,13 +202,24 @@ struct EngineSettingsTab: View {
     var body: some View {
         Form {
             Section {
+                Picker("Transcription mode", selection: $appState.speechMode) {
+                    ForEach(SpeechMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .disabled(appState.isRecording || appState.isProcessing)
+                .padding(.vertical, 6)
+
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "desktopcomputer")
                         .foregroundColor(.orange)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Local Whisper on Apple Silicon")
+                        Text(appState.speechMode == .accuracy ? "Whisper for accuracy" : "Nemotron English for speed")
                             .fontWeight(.semibold)
-                        Text("Speech recognition runs on this Mac using mlx-whisper and Metal GPU acceleration. Your recordings stay on this Mac.")
+                        Text(appState.speechMode == .accuracy
+                             ? "The default for accuracy and multiple languages. Transcribes after you finish speaking, using Metal on this Mac."
+                             : "English only. Transcribes while you speak using Metal, so there is less to finish when you release the hotkey. Custom and remembered words guide recognition.")
                             .font(.callout)
                             .foregroundColor(.secondary)
                     }
@@ -230,7 +241,13 @@ struct EngineSettingsTab: View {
                 }
                 .padding(.vertical, 6)
 
-                Text("Uses installed model files only. Model downloads and online checks are disabled.")
+                if appState.speechMode == .fast && appState.engineStatus.phase == .unavailable {
+                    Text("Install the optional model once with make setup-fast. Then select Accuracy and Fast again to reload it.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Text("Both modes use installed files only. Recordings, vocabulary, and corrections stay on this Mac. Rescued audio uses Whisper for accuracy.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } header: {

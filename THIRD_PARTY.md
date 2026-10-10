@@ -16,6 +16,16 @@ into a local cache; neither is included in this repository.
   [MLX Whisper large-v3-turbo model](https://huggingface.co/mlx-community/whisper-large-v3-turbo)
   and [English base fallback](https://huggingface.co/mlx-community/whisper-base.en)
   publish their own model cards and license information.
+- Optional [NeMo-Speech.cpp 0.2.0](https://github.com/NVIDIA/NeMo-Speech.cpp/tree/v0.2.0)
+  uses Apache License 2.0. The separately installed Metal package retains its
+  LICENSE, NOTICE, and third-party notices, including GGML and SentencePiece.
+- Optional [Nemotron English 0.6B](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b)
+  publishes the NVIDIA Open Model License. Setup pins model revision
+  `ebe59e5a817142986528bbbee5dba8db7b38ed50` and verifies the Q8 GGUF and original
+  SentencePiece tokenizer by SHA-256. An older export omitted the tokenizer;
+  setup adds the original tokenizer metadata for RNNT word boosting without
+  altering tensor data or quantization. See the upstream
+  [boosting documentation](https://github.com/NVIDIA/NeMo-Speech.cpp/blob/v0.2.0/docs/asr/customization.md).
 
 Installed packages retain license files in their package metadata directories,
 including notices for transitive dependencies. Consult those notices when

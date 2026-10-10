@@ -29,7 +29,7 @@ PRIVATE_GLOBS = (
     "*.wav", "*.aiff", "*.aif", "*.caf", "*.mp3", "*.m4a", "*.flac",
     "*.log", "*.sqlite", "*.sqlite3", "*.db", "*.pem", "*.key", "*.p12",
     "*.pfx", "*.mobileprovision", "*.safetensors", "*.npz", "*.pt", "*.pth",
-    "*.onnx", "*.zip", "*.dmg", "*.pkg", "*.bundle", "*.bak", "*.backup",
+    "*.onnx", "*.gguf", "*.nemo", "*.model", "*.zip", "*.dmg", "*.pkg", "*.bundle", "*.bak", "*.backup",
     "credentials*", "secrets*", "last_recording*", ".python-version",
     ".tool-versions", ".DS_Store",
 )

@@ -6,6 +6,45 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 ### Recently Completed & Verified
 
+**Optional local English streaming (October 10, 2026; verified locally):**
+
+- Fixed the Nemotron Q8 export's missing SentencePiece tokenizer. Setup embeds
+  the exact tokenizer from the pinned public checkpoint while preserving tensor
+  bytes. All 1,024 token IDs match the original vocabulary. The three synthetic
+  names missed without hints were all recovered with actual RNNT boosting.
+- Added Accuracy — Whisper (default) and Fast — Nemotron English in Engine
+  settings. Fast streams mono PCM16 during capture into a separate warm Metal
+  child; release flushes queued frames before finalizing. Vocabulary merges
+  manual terms and remembered corrections. Existing cleanup, focus protection,
+  clipboard behavior, learning, and rescue recording still apply. Rescue uses
+  Whisper; switching modes is disabled during recording or processing.
+- Optional `make setup-fast` installs pinned, checksum-verified public assets.
+  Normal dictation never downloads; a missing or mismatched tokenizer cannot
+  silently disable boosting. Runtime files, models, and local benchmark outputs
+  remain outside public source. No HTTP endpoint or cloud transcription is used.
+- All 11 Swift regression suites and 84 Python tests passed, including ordered
+  streaming frames, the final short buffer, bounded buffering, cancellation,
+  invalid audio, optional setup, vocabulary delivery, and remembered words.
+  Production socket/Metal tests recovered all three synthetic names, retained
+  the long dictation's ending, returned empty text for silence and noise, and
+  reloaded after cancellation. Two paced speech clips finalized in approximately
+  54–67 ms over the Unix socket; capture, cleanup, and paste are outside that
+  measurement. Whisper's existing accuracy/vocabulary path also passed offline.
+  The production Swift streaming client also passed against the running app's
+  Metal worker with synthetic audio, finalizing in approximately 68 ms.
+- Debug and release builds, bundle signature, complete bundled-module identity,
+  and source privacy checks passed. Both modes were visibly Ready in the running
+  app's Engine settings; Accuracy was restored after verification. The release
+  bundle now uses the persistent local development signing identity. The app
+  showed its permission setup screen; live microphone/Accessibility dictation
+  needs permissions on this Mac and has not been exercised for fast mode.
+- README, privacy/storage, and third-party notices document optional setup and
+  local behavior. New GGUF/checkpoint/tokenizer formats are ignored and rejected
+  by publication checks, even when force-staged. Only source, documentation, and
+  synthetic tests belong in the release; models and local benchmark data stay
+  private. Maintainers land this source update through the required GitHub privacy
+  and macOS checks using the neutral-identity route in MAINTAINING.md.
+
 **Local dictation improvements (October 10, 2026):**
 
 - Paste and voice undo resolve Command shortcuts from the active keyboard layout.
@@ -142,12 +181,23 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - **Build Script Signing Hardening (`build_app.sh`)**: Added graceful ad-hoc signing fallback if persistent developer identity signing cannot access the keychain or is run non-interactively.
 
 ### Verification Status
-- All ten Swift regression suites passed locally: cleaner, local-daemon-client, hotkeys, keyboard shortcuts, correction learning, insertion-target, microphone, audio conversion/config, pill-display, and app-state.
-- All 70 Python tests passed: 47 daemon tests, 7 setup tests, and 16 privacy tests.
+- All eleven Swift regression suites passed locally: cleaner, local-daemon-client, streaming-session, hotkeys, keyboard shortcuts, correction learning, insertion-target, microphone, audio conversion/config, pill-display, and app-state.
+- All 84 Python tests passed: 47 daemon tests, 7 setup tests, 13 fast-engine/setup tests, and 17 privacy tests.
 - App bundle cleanly compiles, packages, and signs (`make build`).
-- Privacy check passed (`make privacy` across 67 file versions).
+- Source and published-history privacy checks passed. The actual staged tree and
+  outgoing history must pass again before each commit/push; personal identity
+  terms remain only in the ignored local deny-list.
+- Public branch histories, repository descriptions, PR text, and source icon
+  metadata were audited for personal and machine identifiers. Retained private
+  local snapshot objects are unavailable through the replacement GitHub repo's
+  object API. Keep those snapshots local; never include them in a push.
 - The real cached offline model warmed to Ready with its actual 223-token prompt window. Synthetic light/dark UI checks covered correction suggestions, long spellings, the vocabulary limit, and learned-word management.
 - Physical Fn/microphone dictation and a fresh online install on a second Mac remain manual onboarding checks. Automated tests use synthetic audio and temporary model caches.
+- Whisper and Nemotron English warmed to Ready offline. The production Swift
+  streaming client, Metal vocabulary boosting, silence/noise, cancellation and
+  reload, and final-word flush were tested with synthetic audio. Optional fast
+  assets must be installed separately on another Mac with `make setup-fast`;
+  they are never copied into Git.
 
 ### Publication and handoff
 

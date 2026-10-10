@@ -59,7 +59,7 @@ public final class AudioRecorder: NSObject {
     }
 
     /// Starts a 16 kHz mono PCM recording using the best available input device with automatic fallback.
-    public func startRecording() throws -> URL {
+    public func startRecording(onPCM16: ((Data) -> Void)? = nil) throws -> URL {
         if isRecordingInternal, let existingURL = tempFileURL { return existingURL }
         MicrophoneController.shared.stopTest()
 
@@ -78,7 +78,7 @@ public final class AudioRecorder: NSObject {
         var lastError: Error?
         for candidate in candidatesToTry {
             do {
-                let url = try attemptStartCapture(device: candidate)
+                let url = try attemptStartCapture(device: candidate, onPCM16: onPCM16)
                 return url
             } catch {
                 lastError = error
@@ -90,7 +90,7 @@ public final class AudioRecorder: NSObject {
         throw lastError ?? MicrophoneError.cannotSelectDevice
     }
 
-    private func attemptStartCapture(device: AudioInputDevice?) throws -> URL {
+    private func attemptStartCapture(device: AudioInputDevice?, onPCM16: ((Data) -> Void)?) throws -> URL {
         let (engine, resolvedDevice, inputFormat) = try makeInputEngine(device: device)
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("metatron_\(UUID().uuidString).wav")
@@ -143,7 +143,12 @@ public final class AudioRecorder: NSObject {
                         return
                     }
                     if converted.frameLength > 0 {
-                        do { try file.write(from: converted) }
+                        do {
+                            try file.write(from: converted)
+                            if let onPCM16, let samples = converted.int16ChannelData?[0] {
+                                onPCM16(Data(bytes: samples, count: Int(converted.frameLength) * 2))
+                            }
+                        }
                         catch { self.reportFailure(error, token: token) }
                     }
                 }

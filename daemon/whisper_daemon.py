@@ -27,13 +27,18 @@ import importlib
 import unicodedata
 from concurrent.futures import Future
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nemotron_engine import FastInferenceWorker
 
-SOCKET_PATH = "/tmp/presstowrite.sock"
+SOCKET_PATH = os.environ.get("PRESSTOWRITE_SOCKET", "/tmp/presstowrite.sock")
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 FALLBACK_MODEL = "mlx-community/whisper-base.en"
 PROTOCOL_VERSION = 3
 MAX_REQUEST_BYTES = 65536
-SCRIPT_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+SCRIPT_SHA256 = hashlib.sha256(b"".join(
+    (Path(__file__).parent / name).read_bytes()
+    for name in ("whisper_daemon.py", "nemotron_engine.py", "gguf_metadata.py")
+)).hexdigest()
 
 active_model = None
 active_model_path = None
@@ -609,11 +614,13 @@ def remove_stale_socket():
         pass
 
 
-def handle_connection(conn, worker):
+def handle_connection(conn, worker, fast_worker=None):
     try:
         conn.settimeout(5)
         data = b""
         while b"\n" not in data:
+            # Streaming clients wait for the begin acknowledgement before sending
+            # PCM, so this bounded read cannot consume a binary audio frame.
             chunk = conn.recv(4096)
             if not chunk:
                 break
@@ -626,6 +633,9 @@ def handle_connection(conn, worker):
         action = req.get("action", "")
         if action == "ping":
             response = engine_status()
+            if req.get("engine") == "fast" and fast_worker is not None:
+                fast_worker.prepare()
+                response.update(fast_worker.status())
         elif req.get("protocol_version") != PROTOCOL_VERSION:
             response = {"error": "Restart Press To Write to update the local speech connection"}
         elif action == "transcribe":
@@ -639,6 +649,16 @@ def handle_connection(conn, worker):
             ).result()
         elif action == "cancel":
             response = {"success": True, "cancelled": worker.cancel(req.get("request_id"))}
+            if fast_worker is not None:
+                fast_worker.cancel(req.get("request_id"))
+        elif action == "stream" and fast_worker is not None:
+            request_id = req.get("request_id")
+            if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-fA-F-]{36}", request_id):
+                raise ValueError("A valid streaming request ID is required")
+            def acknowledge(result):
+                result["protocol_version"] = PROTOCOL_VERSION
+                conn.sendall((json.dumps(result) + "\n").encode("utf-8"))
+            response = fast_worker.stream(conn, request_id, req.get("vocabulary", []), acknowledge)
         elif action == "shutdown":
             if req.get("expected_sha256") != SCRIPT_SHA256:
                 response = {"error": "The speech daemon changed; shutdown was refused"}
@@ -705,17 +725,19 @@ def run_server():
     os.chmod(SOCKET_PATH, 0o600)
     print(f"[Press To Write Daemon] Offline socket initialized at {SOCKET_PATH}")
     worker = IsolatedInferenceWorker()
+    fast_worker = FastInferenceWorker()
     try:
         while not server_stop.is_set():
             try:
                 conn, _ = server.accept()
             except socket.timeout:
                 continue
-            threading.Thread(target=handle_connection, args=(conn, worker), daemon=True).start()
+            threading.Thread(target=handle_connection, args=(conn, worker, fast_worker), daemon=True).start()
     finally:
         server.close()
         cleanup_socket()
         worker.shutdown()
+        fast_worker.shutdown()
         lock_file.close()
 
 

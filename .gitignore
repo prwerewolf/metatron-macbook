@@ -52,6 +52,9 @@ last_recording*
 *.pt
 *.pth
 *.onnx
+*.gguf
+*.nemo
+*.model
 /dist/
 *.zip
 *.dmg

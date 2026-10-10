@@ -76,13 +76,22 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             sourcePath = nil
         }
 
-        if let sourcePath, let sourceData = try? Data(contentsOf: URL(fileURLWithPath: sourcePath)) {
-            let targetData = try? Data(contentsOf: targetScript)
-            if targetData != sourceData {
-                try? FileManager.default.removeItem(at: targetScript)
-                try? sourceData.write(to: targetScript, options: .atomic)
-            }
-            return targetScript.path
+        if let sourcePath {
+            let sourceDirectory = URL(fileURLWithPath: sourcePath).deletingLastPathComponent()
+            do {
+                // Read the complete revision before staging any file. The hash
+                // covers every module, so a helper-only update restarts the worker.
+                let files = try daemonFileNames.map { name in
+                    (name, try Data(contentsOf: sourceDirectory.appendingPathComponent(name)))
+                }
+                for (name, data) in files {
+                    let target = dirURL.appendingPathComponent(name)
+                    if (try? Data(contentsOf: target)) != data {
+                        try data.write(to: target, options: .atomic)
+                    }
+                }
+                return targetScript.path
+            } catch { return nil }
         }
 
         if FileManager.default.fileExists(atPath: targetScript.path) {
@@ -107,9 +116,15 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
     }
 
     private func scriptSHA256(at path: String) throws -> String {
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        let directory = URL(fileURLWithPath: path).deletingLastPathComponent()
+        var data = Data()
+        for name in daemonFileNames {
+            data.append(try Data(contentsOf: directory.appendingPathComponent(name)))
+        }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
+
+    private let daemonFileNames = ["whisper_daemon.py", "nemotron_engine.py", "gguf_metadata.py"]
 
     func isCurrentDaemon(_ response: [String: Any], scriptHash: String) -> Bool {
         response["protocol_version"] as? Int == protocolVersion &&
@@ -144,12 +159,12 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
 
     /// Launch and socket I/O run off the main thread. The daemon answers pings during warmup
     /// and inference, so "Ready" always means the actual model has finished loading.
-    public func engineStatus() async -> LocalEngineStatus {
+    public func engineStatus(mode: SpeechMode = .accuracy) async -> LocalEngineStatus {
         await withCheckedContinuation { continuation in
             lifecycleQueue.async {
                 do {
                     try self.launchIfNeeded()
-                    let response = try self.request(["action": "ping"], timeout: 1)
+                    let response = try self.request(["action": "ping", "engine": mode.rawValue], timeout: 1)
                     continuation.resume(returning: self.status(from: response))
                 } catch {
                     continuation.resume(returning: LocalEngineStatus(
@@ -441,7 +456,20 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         return text
     }
 
-    private func connectedSocket(timeout: Int) throws -> Int32 {
+    public func startStreaming(vocabulary: [String]) -> LocalStreamingSession {
+        LocalStreamingSession(client: self, vocabulary: vocabulary)
+    }
+
+    func cancelStreaming(requestID: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = try? self.request([
+                "action": "cancel", "protocol_version": self.protocolVersion,
+                "request_id": requestID,
+            ], timeout: 2)
+        }
+    }
+
+    func connectedSocket(timeout: Int) throws -> Int32 {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { throw engineError("Could not create a local speech connection.") }
         var socketTimeout = timeval(tv_sec: timeout, tv_usec: 0)
@@ -479,8 +507,17 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
             if connectedFD == nil { close(fd) }
         }
         try inFlight?.register(fd)
+        try sendJSON(request, to: fd)
+        return try readJSON(from: fd)
+    }
+
+    func sendJSON(_ request: [String: Any], to fd: Int32) throws {
         var payload = try JSONSerialization.data(withJSONObject: request)
         payload.append(0x0A)
+        try sendData(payload, to: fd)
+    }
+
+    func sendData(_ payload: Data, to fd: Int32) throws {
         try payload.withUnsafeBytes { bytes in
             guard let base = bytes.baseAddress else { return }
             var offset = 0
@@ -491,6 +528,9 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
                 offset += sent
             }
         }
+    }
+
+    func readJSON(from fd: Int32) throws -> [String: Any] {
         var response = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while !response.contains(0x0A) {
@@ -509,7 +549,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         return decoded
     }
 
-    private func engineError(_ message: String) -> NSError {
+    func engineError(_ message: String) -> NSError {
         NSError(domain: "PressToWriteLocal", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 }

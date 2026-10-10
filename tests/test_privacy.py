@@ -65,6 +65,16 @@ class PrivacyTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("private or generated file", result.stderr)
 
+    def test_force_added_models_and_tokenizer_are_blocked(self):
+        for name in ("weights.gguf", "checkpoint.nemo", "tokenizer.model"):
+            with self.subTest(name=name):
+                (self.repo / name).write_text("synthetic model placeholder")
+                self.git("add", "-f", name)
+                result = self.check("--staged")
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("private or generated file", result.stderr)
+                self.git("reset", "--", name)
+
     def test_private_ancestor_is_blocked_after_latest_snapshot_is_clean(self):
         private = "/" + "Users/" + "sample-owner/project"
         file = self.repo / "source.txt"

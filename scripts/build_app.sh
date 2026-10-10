@@ -38,6 +38,8 @@ cp "$DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
 # 5. Package the daemon. The app stages its own script when launched; building
 # alone must not replace a running user's Application Support files.
 cp "$DIR/daemon/whisper_daemon.py" "$RESOURCES_DIR/whisper_daemon.py"
+cp "$DIR/daemon/nemotron_engine.py" "$RESOURCES_DIR/nemotron_engine.py"
+cp "$DIR/daemon/gguf_metadata.py" "$RESOURCES_DIR/gguf_metadata.py"
 chmod +x "$RESOURCES_DIR/whisper_daemon.py"
 
 # 6. Copy AppIcon.icns & AppIcon_master.png

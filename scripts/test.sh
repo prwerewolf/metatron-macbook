@@ -15,9 +15,16 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
     Sources/PressToWrite/Engine/SpeechEngine.swift Sources/PressToWrite/Engine/TextCleaner.swift \
-    Sources/PressToWrite/Engine/LocalDaemonClient.swift tests/test_local_daemon_client.swift \
+    Sources/PressToWrite/Engine/LocalDaemonClient.swift Sources/PressToWrite/Engine/LocalStreamingSession.swift \
+    tests/test_local_daemon_client.swift \
     -o "$TEST_DIR/local-daemon-client"
 "$TEST_DIR/local-daemon-client"
+
+swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
+    Sources/PressToWrite/Engine/SpeechEngine.swift Sources/PressToWrite/Engine/TextCleaner.swift \
+    Sources/PressToWrite/Engine/LocalDaemonClient.swift Sources/PressToWrite/Engine/LocalStreamingSession.swift \
+    tests/test_streaming_session.swift -o "$TEST_DIR/streaming-session"
+"$TEST_DIR/streaming-session"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
     Sources/PressToWrite/Core/HotkeyManager.swift tests/test_hotkeys.swift \
