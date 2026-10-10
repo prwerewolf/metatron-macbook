@@ -25,7 +25,18 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
 "$TEST_DIR/hotkeys"
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
+    Sources/PressToWrite/Core/KeyboardShortcutResolver.swift tests/test_keyboard_shortcuts.swift \
+    -o "$TEST_DIR/keyboard-shortcuts"
+"$TEST_DIR/keyboard-shortcuts"
+
+swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
+    Sources/PressToWrite/Core/CorrectionLearner.swift tests/test_correction_learning.swift \
+    -o "$TEST_DIR/correction-learning"
+"$TEST_DIR/correction-learning"
+
+swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
     Sources/PressToWrite/Core/InsertionTarget.swift Sources/PressToWrite/Core/TextInserter.swift \
+    Sources/PressToWrite/Core/KeyboardShortcutResolver.swift Sources/PressToWrite/Core/CorrectionLearner.swift \
     tests/test_insertion_target.swift \
     -o "$TEST_DIR/insertion-target"
 "$TEST_DIR/insertion-target"
@@ -48,6 +59,7 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library -D PRESSTOWRITE_TESTING \
     Sources/PressToWrite/Core/RescueAudioController.swift \
+    Sources/PressToWrite/Core/CorrectionLearner.swift \
     Sources/PressToWrite/App/AppState.swift Sources/PressToWrite/Engine/TextCleaner.swift \
     Sources/PressToWrite/Engine/SpeechEngine.swift tests/test_app_state.swift \
     -o "$TEST_DIR/app-state"

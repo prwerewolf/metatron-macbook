@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
@@ -11,6 +12,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     private var historyWindow: NSWindow?
     private var permissionsWindow: NSWindow?
     private var watchdogTimer: Timer?
+    private var correctionPanel: CorrectionSuggestionPanel?
+    private var correctionSubscription: AnyCancellable?
+    private var correctionFocusObserver: NSObjectProtocol?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // Run as standard macOS application with Dock presence
@@ -19,6 +23,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         setupMainMenu()
         setupStatusItem()
         setupFloatingPill()
+        setupCorrectionSuggestions()
 
         // Start global keyboard and modifier listener
         HotkeyManager.shared.startListening()
@@ -45,6 +50,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
     }
 
     public func applicationWillTerminate(_ notification: Notification) {
+        if let correctionFocusObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(correctionFocusObserver)
+        }
+        correctionSubscription?.cancel()
+        correctionPanel?.orderOut(nil)
         MicrophoneController.shared.endMonitoring()
         AppState.shared.cancelDictation(showFeedback: false)
         HotkeyManager.shared.stopListening()
@@ -62,6 +72,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate,
         let panel = FloatingPillPanel()
         panel.orderFront(nil)
         self.pillPanel = panel
+    }
+
+    private func setupCorrectionSuggestions() {
+        correctionSubscription = AppState.shared.$correctionSuggestions
+            .receive(on: RunLoop.main)
+            .sink { [weak self] suggestions in
+                guard let self else { return }
+                guard let suggestion = suggestions.first, let frame = self.pillPanel?.frame else {
+                    self.correctionPanel?.orderOut(nil)
+                    return
+                }
+                if let panel = self.correctionPanel { panel.update(suggestion) }
+                else { self.correctionPanel = CorrectionSuggestionPanel(suggestion: suggestion) }
+                self.correctionPanel?.show(near: frame)
+            }
+        correctionFocusObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { _ in
+            Task { @MainActor in AppState.shared.stopCorrectionLearning() }
+        }
     }
 
     private func setupMainMenu() {

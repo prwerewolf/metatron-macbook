@@ -14,6 +14,18 @@ only complete files already on disk. There is no cloud transcription API key.
 | Speech model weights | Local Hugging Face cache or a user-selected directory |
 | Diagnostic log | `/tmp/presstowrite_daemon.log` |
 | Dictation history | Memory only; cleared when the app exits |
+| Accepted learned spellings | App UserDefaults on this Mac; edit or clear in Settings → Writing |
+| Correction-learning snapshots and suggestions | Memory only; never written to logs or files |
+
+Correction learning is off by default. When enabled outside Incognito, a successful
+paste can start up to 30 seconds of observation of the same focused, non-secure
+accessible control. Reads are bounded to 8,192 UTF-16 units, and dictations above
+2,048 units are excluded. A verified paste and unchanged surrounding text are
+required before edits can produce a spelling suggestion. Focus changes, new
+dictations, cancellation, purging history, or disabling learning stop observation.
+Only clicking Remember saves a word. Accepted words survive clearing dictation
+history; forget them separately in Learned Vocabulary. No model is retrained and
+no correction data is sent to another service.
 
 Quitting the app does not erase the recovery recording. Remove it from Application
 Support yourself when you no longer want it retained. Incognito changes in-memory

@@ -54,6 +54,18 @@ public final class AppState: ObservableObject {
         }
     }
 
+    @Published public var correctionLearningEnabled: Bool = false {
+        didSet {
+            UserDefaults.standard.set(correctionLearningEnabled, forKey: "metatron_correction_learning")
+            if !correctionLearningEnabled { stopCorrectionLearning() }
+        }
+    }
+    @Published public private(set) var learnedVocabulary: [String] = []
+    @Published public private(set) var correctionSuggestions: [VocabularySuggestion] = []
+    private let correctionMonitor = CorrectionMonitor()
+    private var correctionFocusWatch: CorrectionFocusWatch?
+    private var dismissedCorrections = Set<String>()
+
     // MARK: - Privacy & Clipboard Controls
     @Published public var autoCopyToClipboard: Bool = false {
         didSet {
@@ -204,6 +216,11 @@ public final class AppState: ObservableObject {
         self.launchAtLogin = LaunchAtLogin.isEnabled
         self.customVocabularyText = UserDefaults.standard.string(forKey: "metatron_vocab") ?? ""
         self.textReplacementsText = UserDefaults.standard.string(forKey: "metatron_replacements") ?? ""
+        self.correctionLearningEnabled = UserDefaults.standard.bool(forKey: "metatron_correction_learning")
+        let savedWords = UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] ?? []
+        var seenWords = Set<String>()
+        self.learnedVocabulary = savedWords.compactMap(Self.validLearnedWord)
+            .filter { seenWords.insert($0.lowercased()).inserted }.prefix(256).map { $0 }
 
         updateCustomVocabulary()
         updateTextReplacements()
@@ -264,7 +281,89 @@ public final class AppState: ObservableObject {
             .components(separatedBy: CharacterSet(charactersIn: ",\n"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        TextCleaner.shared.customVocabulary = terms
+        var seen = Set<String>()
+        TextCleaner.shared.customVocabulary = (terms + learnedVocabulary)
+            .filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    public func stopCorrectionLearning() {
+        correctionFocusWatch = nil
+        correctionMonitor.stop()
+        correctionSuggestions.removeAll()
+        dismissedCorrections.removeAll()
+    }
+
+    private func beginCorrectionLearning(capture: CorrectionCapture, target: InsertionTarget) {
+        guard correctionLearningEnabled, historyRetention != .off else { return }
+        correctionFocusWatch = target.watchCorrectionFocus { [weak self] in
+            Task { @MainActor in self?.stopCorrectionLearning() }
+        }
+        correctionMonitor.start(
+            capture: capture, knownWords: TextCleaner.shared.customVocabulary,
+            read: { target.correctionSnapshot() },
+            onSuggestions: { [weak self] suggestions in
+                guard let self, self.correctionLearningEnabled, self.historyRetention != .off else { return }
+                let known = Set(TextCleaner.shared.customVocabulary.map { $0.lowercased() })
+                self.correctionSuggestions = suggestions.filter {
+                    !self.dismissedCorrections.contains($0.id) && !known.contains($0.word.lowercased())
+                }
+            },
+            onInvalidated: { [weak self] in self?.stopCorrectionLearning() }
+        )
+    }
+
+    public func dismissCorrection(_ suggestion: VocabularySuggestion) {
+        dismissedCorrections.insert(suggestion.id)
+        correctionSuggestions.removeAll { $0.id == suggestion.id }
+    }
+
+    public func rememberCorrection(_ suggestion: VocabularySuggestion) {
+        guard correctionLearningEnabled, historyRetention != .off,
+              correctionSuggestions.contains(suggestion), let word = Self.validLearnedWord(suggestion.word),
+              learnedVocabulary.count < 256 else { return }
+        if !TextCleaner.shared.customVocabulary.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) {
+            learnedVocabulary.append(word)
+            saveLearnedVocabulary()
+        }
+        dismissCorrection(suggestion)
+    }
+
+    @discardableResult
+    public func updateLearnedWord(_ oldWord: String, to replacement: String) -> Bool {
+        guard let index = learnedVocabulary.firstIndex(of: oldWord),
+              let word = Self.validLearnedWord(replacement),
+              !learnedVocabulary.enumerated().contains(where: {
+                  $0.offset != index && $0.element.caseInsensitiveCompare(word) == .orderedSame
+              }),
+              !TextCleaner.shared.customVocabulary.contains(where: {
+                  $0.caseInsensitiveCompare(oldWord) != .orderedSame && $0.caseInsensitiveCompare(word) == .orderedSame
+              }) else { return false }
+        learnedVocabulary[index] = word
+        saveLearnedVocabulary()
+        return true
+    }
+
+    public func removeLearnedWord(_ word: String) {
+        learnedVocabulary.removeAll { $0 == word }
+        saveLearnedVocabulary()
+    }
+
+    public func clearLearnedVocabulary() {
+        learnedVocabulary.removeAll()
+        saveLearnedVocabulary()
+    }
+
+    private static func validLearnedWord(_ value: String) -> String? {
+        let word = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-'’ "))
+        guard !word.isEmpty, word.count <= 64, word.unicodeScalars.allSatisfy(allowed.contains),
+              word.unicodeScalars.contains(where: CharacterSet.letters.contains) else { return nil }
+        return word
+    }
+
+    private func saveLearnedVocabulary() {
+        UserDefaults.standard.set(learnedVocabulary, forKey: "metatron_learned_vocabulary")
+        updateCustomVocabulary()
     }
 
     private func updateTextReplacements() {
@@ -346,6 +445,7 @@ public final class AppState: ObservableObject {
 
     public func startRecording() {
         guard !isRecording, !isProcessing else { return }
+        stopCorrectionLearning()
         clearFeedback()
         guard engineStatus.phase == .ready else {
             statusMessage = engineStatus.message
@@ -472,12 +572,11 @@ public final class AppState: ObservableObject {
 
                 // Standalone Voice Undo: "scratch that", "cancel that", "undo that"
                 if Self.isUndoCommand(cleanedText) {
-                    if HotkeyManager.isAccessibilityGranted() {
-                        TextInserter.shared.sendUndoKeystroke()
-                    }
-                    self.statusMessage = "Undone!"
-                    self.showSuccess = true
-                    SoundEffects.shared.playSuccess()
+                    let undone = HotkeyManager.isAccessibilityGranted() && target?.isCurrent == true
+                        && TextInserter.shared.sendUndoKeystroke()
+                    self.statusMessage = undone ? "Undone!" : "Undo unavailable — use Edit → Undo"
+                    self.showSuccess = undone
+                    if undone { SoundEffects.shared.playSuccess() } else { SoundEffects.shared.playError() }
                     self.scheduleFeedbackReset(after: 1_800_000_000)
                     return
                 }
@@ -502,6 +601,10 @@ public final class AppState: ObservableObject {
                     if self.autoInsertText {
                         let hasAccessibility = HotkeyManager.isAccessibilityGranted()
                         if hasAccessibility {
+                            let capture = self.correctionLearningEnabled && self.historyRetention != .off
+                                ? effectiveTarget?.correctionSnapshot().flatMap {
+                                    CorrectionCapture(before: $0, insertedText: textToInsert)
+                                } : nil
                             let inserted: Bool = await withCheckedContinuation { continuation in
                                 TextInserter.shared.insertText(textToInsert, keepOnClipboard: self.autoCopyToClipboard, target: effectiveTarget, shouldInsert: { [weak self] in
                                     self?.transcriptionID == requestID
@@ -516,12 +619,15 @@ public final class AppState: ObservableObject {
                                 self.lastInsertionTime = Date()
                                 self.lastInsertionPID = effectiveTarget?.targetPID
                                 self.lastInsertedEndsWithWhitespace = textToInsert.hasSuffix(" ") || textToInsert.hasSuffix("\n")
+                                if let capture, let effectiveTarget {
+                                    self.beginCorrectionLearning(capture: capture, target: effectiveTarget)
+                                }
                             } else {
                                 // Always place speech on clipboard if auto-insertion could not complete
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(cleanedText, forType: .string)
                                 needsManualInsertion = true
-                                self.statusMessage = "Focus changed — text copied to clipboard"
+                                self.statusMessage = "Text ready — copied for manual paste"
                             }
                         } else {
                             HotkeyManager.requestAccessibilityPermission()
@@ -578,6 +684,7 @@ public final class AppState: ObservableObject {
 
     public func transcribeRescueAudio() {
         guard !isRecording, !isProcessing else { return }
+        stopCorrectionLearning()
         guard RescueAudioController.shared.hasRescueAudio else {
             statusMessage = "No Rescued Audio"
             scheduleFeedbackReset(after: 1_500_000_000)
@@ -650,6 +757,7 @@ public final class AppState: ObservableObject {
     }
 
     public func cancelDictation(showFeedback: Bool = true) {
+        stopCorrectionLearning()
         guard isRecording || isProcessing else { return }
         clearFeedback()
         let recordedURL = isRecording ? AudioRecorder.shared.stopRecording() : nil
@@ -726,6 +834,7 @@ public final class AppState: ObservableObject {
     }
 
     public func clearHistory() {
+        stopCorrectionLearning()
         history.removeAll()
         lastTranscribedText = ""
         hasPendingInsertion = false

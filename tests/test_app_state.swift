@@ -93,6 +93,8 @@ public enum LaunchAtLogin {
     public static var isEnabled = false
 }
 
+public final class CorrectionFocusWatch {}
+
 public struct InsertionTarget {
     public enum CursorContext: Equatable {
         case character(Character)
@@ -103,6 +105,9 @@ public struct InsertionTarget {
     public static var mockPrecedingChar: Character? = nil
     public static var mockCursorContext: CursorContext? = nil
     public static var mockPrecedingText: String? = nil
+    public static var mockSnapshot: CorrectionFieldSnapshot? = nil
+    public static var snapshotReads = 0
+    public static var focusChanged: (() -> Void)?
     public static func capture() -> InsertionTarget? { InsertionTarget() }
     public var isCurrent: Bool { Self.current }
     public var targetPID: pid_t { 123 }
@@ -118,17 +123,37 @@ public struct InsertionTarget {
     public func precedingText(maxCharacters: Int = 200) -> String? {
         Self.mockPrecedingText
     }
+    public func correctionSnapshot() -> CorrectionFieldSnapshot? {
+        Self.snapshotReads += 1
+        return Self.current ? Self.mockSnapshot : nil
+    }
+    public func watchCorrectionFocus(_ onChange: @escaping () -> Void) -> CorrectionFocusWatch? {
+        Self.focusChanged = onChange
+        return CorrectionFocusWatch()
+    }
 }
 
 public final class TextInserter {
     public static let shared = TextInserter()
     public var pendingCompletion: (() -> Void)?
     public private(set) var undoCount = 0
+    public var undoSucceeds = true
     public func insertText(_ text: String, keepOnClipboard: Bool, target: InsertionTarget?, shouldInsert: (() -> Bool)? = nil, completion: ((Bool) -> Void)? = nil) {
-        pendingCompletion = { completion?(target?.isCurrent == true && shouldInsert?() != false) }
+        pendingCompletion = {
+            let inserted = target?.isCurrent == true && shouldInsert?() != false
+            if inserted, let before = InsertionTarget.mockSnapshot,
+               let capture = CorrectionCapture(before: before, insertedText: text) {
+                InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(
+                    text: capture.expectedText, selection: NSRange(location: capture.expectedText.utf16.count, length: 0)
+                )
+            }
+            completion?(inserted)
+        }
     }
-    public func sendUndoKeystroke() {
+    public func sendUndoKeystroke() -> Bool {
+        guard undoSucceeds else { return false }
         undoCount += 1
+        return true
     }
 }
 
@@ -136,7 +161,7 @@ public final class TextInserter {
 struct AppStateTests {
     @MainActor
     static func waitUntil(_ condition: () -> Bool) async throws {
-        for _ in 0..<500 {
+        for _ in 0..<2000 {
             if condition() { return }
             try await Task.sleep(nanoseconds: 2_000_000)
         }
@@ -232,7 +257,7 @@ struct AppStateTests {
         try await waitUntil { !state.isProcessing }
         precondition(state.hasPendingInsertion && !state.showSuccess)
         precondition(state.lastTranscribedText == "Test dictation")
-        precondition(state.statusMessage.contains("Focus changed"))
+        precondition(state.statusMessage.contains("manual paste"))
         InsertionTarget.current = true
 
         // Escape stops capture, deletes its file, and never calls the recognizer.
@@ -416,6 +441,84 @@ struct AppStateTests {
                      "Continuation must preserve lowercase first letter")
         InsertionTarget.mockPrecedingText = nil
 
-        print("AppState regressions passed: offline readiness, vocabulary/styles, focus protection, cancellation, device errors, feedback, cleanup, smart spacing, undo command, click guard, rescue audio, context biasing, and unchanged clipboard fallback.")
+        // Correction learning needs a verified paste, then an explicit Remember.
+        state.correctionLearningEnabled = true
+        state.autoInsertText = true
+        InsertionTarget.mockCursorContext = .startOfText
+        InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(text: "", selection: NSRange(location: 0, length: 0))
+        engine.result = .success("Send this to Lumara.")
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { TextInserter.shared.pendingCompletion != nil }
+        TextInserter.shared.pendingCompletion?()
+        TextInserter.shared.pendingCompletion = nil
+        try await waitUntil { !state.isProcessing }
+        try await Task.sleep(nanoseconds: 600_000_000)
+        InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(text: "Send this to Lumora.", selection: NSRange(location: 20, length: 0))
+        try await waitUntil { !state.correctionSuggestions.isEmpty }
+        precondition(state.learnedVocabulary.isEmpty, "Suggestions must never save themselves")
+        precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") == nil)
+        state.rememberCorrection(state.correctionSuggestions[0])
+        precondition(state.learnedVocabulary == ["Lumora"] && state.correctionSuggestions.isEmpty)
+        precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] == ["Lumora"])
+        precondition(state.customVocabularyText == "Sample User, Metatron", "Learning must preserve manual vocabulary")
+
+        // Learned terms guide the next utterance; dismissing never reopens the same suggestion.
+        InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(text: "", selection: NSRange(location: 0, length: 0))
+        engine.result = .success("Call Zephara.")
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { TextInserter.shared.pendingCompletion != nil }
+        TextInserter.shared.pendingCompletion?()
+        TextInserter.shared.pendingCompletion = nil
+        try await waitUntil { !state.isProcessing }
+        precondition(engine.requests.last!.vocabulary.contains("Lumora"))
+        try await Task.sleep(nanoseconds: 600_000_000)
+        InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(text: "Call Zephira.", selection: NSRange(location: 13, length: 0))
+        try await waitUntil { !state.correctionSuggestions.isEmpty }
+        state.dismissCorrection(state.correctionSuggestions[0])
+        try await Task.sleep(nanoseconds: 600_000_000)
+        precondition(state.correctionSuggestions.isEmpty && state.learnedVocabulary == ["Lumora"])
+
+        let readsBeforeFocusChange = InsertionTarget.snapshotReads
+        InsertionTarget.focusChanged?()
+        try await Task.sleep(nanoseconds: 600_000_000)
+        precondition(InsertionTarget.snapshotReads == readsBeforeFocusChange,
+                     "A native focus-change notification must stop observation between polls")
+
+        // Incognito cancels observation and performs no further field reads.
+        state.historyRetention = .off
+        let readsBeforeIncognito = InsertionTarget.snapshotReads
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { TextInserter.shared.pendingCompletion != nil }
+        TextInserter.shared.pendingCompletion?()
+        TextInserter.shared.pendingCompletion = nil
+        try await waitUntil { !state.isProcessing }
+        try await Task.sleep(nanoseconds: 600_000_000)
+        precondition(InsertionTarget.snapshotReads == readsBeforeIncognito && state.correctionSuggestions.isEmpty)
+        state.clearHistory()
+        precondition(state.learnedVocabulary == ["Lumora"], "Purging speech must preserve explicitly remembered vocabulary")
+        precondition(state.updateLearnedWord("Lumora", to: "LumoTech"))
+        precondition(TextCleaner.shared.customVocabulary.contains("LumoTech"))
+        precondition(!state.updateLearnedWord("LumoTech", to: "invalid,entry"))
+        state.removeLearnedWord("LumoTech")
+        precondition(state.learnedVocabulary.isEmpty && !TextCleaner.shared.customVocabulary.contains("LumoTech"))
+        precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] == [])
+        state.correctionLearningEnabled = false
+        state.historyRetention = .clearOnQuit
+        InsertionTarget.mockSnapshot = nil
+        InsertionTarget.mockCursorContext = nil
+
+        // An unresolved layout shortcut must never claim a successful undo.
+        TextInserter.shared.undoSucceeds = false
+        engine.result = .success("scratch that")
+        state.startRecording()
+        state.stopRecordingAndTranscribe()
+        try await waitUntil { !state.isProcessing }
+        precondition(state.statusMessage.contains("Undo unavailable") && !state.showSuccess)
+        TextInserter.shared.undoSucceeds = true
+
+        print("AppState regressions passed: dictation, clipboard fallback, corrections, remembered vocabulary, native focus changes, Incognito, cancellation, and undo failure.")
     }
 }

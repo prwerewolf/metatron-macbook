@@ -158,7 +158,59 @@ struct InsertionTargetTests {
         precondition(midText == "Hello", "Location > 0 must report preceding text")
         precondition(queriedRange.location == 0 && queriedRange.length == 5, "Queried range must cover prefix up to location 5")
 
-        print("All Metatron insertion destination tests passed (\(scenarios.count + 9) scenarios).")
+        // Learning requires exact control identity and bounded non-secure text.
+        var didReadCorrectionText = false
+        var secure = false
+        var reportedLength = "📌 Lumara".utf16.count
+        var focusedControl = application
+        var subroleFailure: AXError? = nil
+        var currentPID: pid_t = 100
+        func correctionSnapshot() -> CorrectionFieldSnapshot? {
+            targetWithElement.correctionSnapshot(
+                currentProcessID: { currentPID },
+                setMessagingTimeout: { _, _ in .success },
+                copyAttributeValue: { _, attribute, value in
+                    switch attribute as String {
+                    case let name where name == kAXFocusedUIElementAttribute as String: value.pointee = focusedControl
+                    case let name where name == kAXRoleAttribute as String: value.pointee = "AXTextArea" as CFString
+                    case let name where name == kAXSubroleAttribute as String:
+                        if let subroleFailure { return subroleFailure }
+                        value.pointee = (secure ? "AXSecureTextField" : "AXStandardTextArea") as CFString
+                    case let name where name == kAXNumberOfCharactersAttribute as String: value.pointee = NSNumber(value: reportedLength)
+                    case let name where name == kAXSelectedTextRangeAttribute as String: value.pointee = zeroAxVal
+                    default: return .attributeUnsupported
+                    }
+                    return .success
+                },
+                copyParameterizedAttributeValue: { _, attribute, parameter, value in
+                    precondition(attribute as String == kAXStringForRangeParameterizedAttribute as String)
+                    var range = CFRange()
+                    AXValueGetValue(parameter as! AXValue, .cfRange, &range)
+                    precondition(range.location == 0 && range.length <= 8192)
+                    didReadCorrectionText = true
+                    value.pointee = "📌 Lumara" as CFString
+                    return .success
+                }
+            )
+        }
+        precondition(correctionSnapshot()?.text == "📌 Lumara" && didReadCorrectionText)
+        didReadCorrectionText = false
+        secure = true
+        precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Secure fields must never be read")
+        secure = false
+        subroleFailure = .cannotComplete
+        precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Unknown security status must fail closed")
+        subroleFailure = nil
+        reportedLength = 8193
+        precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Large documents must not be read")
+        reportedLength = 8
+        focusedControl = AXUIElementCreateSystemWide()
+        precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Another field in the same app must not be read")
+        focusedControl = application
+        currentPID = 200
+        precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Another application must not be read")
+
+        print("Insertion destination tests passed, including exact control identity, secure fields, read bounds, and focus loss for correction learning.")
     }
 }
 

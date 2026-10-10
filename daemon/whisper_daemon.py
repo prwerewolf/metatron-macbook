@@ -23,6 +23,8 @@ import multiprocessing
 import queue
 import stat
 import wave
+import importlib
+import unicodedata
 from concurrent.futures import Future
 from pathlib import Path
 
@@ -36,6 +38,8 @@ SCRIPT_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 active_model = None
 active_model_path = None
 mlx_whisper = None
+prompt_tokenizer = None
+prompt_token_budget = 223
 is_engine_ready = False
 engine_load_error = None
 engine_message = "Loading the local speech model…"
@@ -118,6 +122,7 @@ def engine_status():
 
 def load_engine_background():
     global mlx_whisper, active_model, active_model_path
+    global prompt_tokenizer, prompt_token_budget
     global is_engine_ready, engine_load_error, engine_message
     with engine_lock:
         is_engine_ready = False
@@ -147,8 +152,21 @@ def load_engine_background():
                         sample_len=1,
                         condition_on_previous_text=False,
                     )
+                    # Use the tokenizer and context size of the actual warmed model.
+                    # These modules and token tables are installed locally with MLX.
+                    holder = importlib.import_module("mlx_whisper.transcribe").ModelHolder
+                    tokenizer_module = importlib.import_module("mlx_whisper.tokenizer")
+                    loaded = holder.model
+                    tokenizer = tokenizer_module.get_tokenizer(
+                        loaded.is_multilingual, num_languages=loaded.num_languages
+                    )
+                    budget = loaded.dims.n_text_ctx // 2 - 1
+                    if budget < 1:
+                        raise RuntimeError("The speech model has no prompt context")
                     with engine_lock:
                         mlx_whisper = mw
+                        prompt_tokenizer = tokenizer
+                        prompt_token_budget = budget
                         active_model_path = model_path
                         is_engine_ready = True
                         engine_message = "Ready — speech stays on this Mac"
@@ -206,42 +224,103 @@ def clean_whisper_result(result: dict) -> str:
 
     return deduplicate_repetition_loops(raw_text)
 
-def vocabulary_prompt(vocabulary):
-    """Keep a compact, stable hint within Whisper's limited initial prompt context."""
+def vocabulary_terms(vocabulary):
+    """Normalize bounded input without splitting a vocabulary entry."""
     if not isinstance(vocabulary, list):
         raise ValueError("Vocabulary must be a list of words or phrases")
     terms = []
     seen = set()
-    length = 0
     for value in vocabulary:
         if not isinstance(value, str):
             raise ValueError("Vocabulary terms must be text")
-        term = " ".join(value.split()).strip()[:100]
-        if not term or term.casefold() in seen:
+        term = " ".join(value.split()).strip()
+        if not term or len(term) > 100 or term.casefold() in seen:
             continue
-        if len(terms) >= 50 or length + len(term) + 2 > 500:
+        if len(terms) >= 256:
             break
         terms.append(term)
         seen.add(term.casefold())
-        length += len(term) + 2
-    return ", ".join(terms) if terms else None
+    return terms
 
 
-def build_initial_prompt(vocabulary, context=None):
-    """Combine preceding document context and custom vocabulary within Whisper's prompt limit."""
-    vocab = vocabulary_prompt([] if vocabulary is None else vocabulary)
-    ctx = None
+def vocabulary_prompt(vocabulary):
+    # Retained for small callers; inference budgets the combined prompt below.
+    return ", ".join(vocabulary_terms(vocabulary)) or None
+
+
+def build_prompt_plan(vocabulary, context=None, tokenizer=None, max_tokens=None):
+    """Reserve recent context, then admit whole terms inside one token budget.
+
+    Count the leading space too: Whisper's decoder may re-encode string prompts
+    with that prefix. Character counts cannot bound rare names or Unicode text.
+    Return the terms actually sent so echo detection uses the same vocabulary.
+    """
+    terms = vocabulary_terms([] if vocabulary is None else vocabulary)
+    tokenizer = tokenizer if tokenizer is not None else prompt_tokenizer
+    budget = max_tokens if max_tokens is not None else prompt_token_budget
+    if tokenizer is None or budget < 1:
+        raise ValueError("The local speech tokenizer is unavailable. Restart Press To Write.")
+
+    def fits(text, limit):
+        return len(tokenizer.encode(" " + text)) <= limit
+
+    ctx = ""
     if isinstance(context, str):
-        cleaned_ctx = " ".join(context.strip().split())
-        if cleaned_ctx:
-            # Keep up to 250 characters of recent context (~40-50 tokens)
-            ctx = cleaned_ctx[-250:].strip()
+        ctx = " ".join(context.split())[-250:].strip()
+        # Leave room for names even when recent document text is token-dense.
+        context_budget = min(64, max(1, budget // 3)) if terms else budget
+        while ctx and not fits(ctx, context_budget):
+            _, separator, tail = ctx.partition(" ")
+            ctx = tail if separator else ctx[1:]
 
-    if ctx and vocab:
-        return f"{ctx} {vocab}"
-    elif ctx:
-        return ctx
-    return vocab
+    accepted = []
+    prompt = ctx
+    for term in terms:
+        candidate_vocab = ", ".join([*accepted, term])
+        candidate = f"{ctx} {candidate_vocab}" if ctx else candidate_vocab
+        if fits(candidate, budget):
+            accepted.append(term)
+            prompt = candidate
+    return prompt or None, accepted
+
+
+def build_initial_prompt(vocabulary, context=None, tokenizer=None, max_tokens=None):
+    return build_prompt_plan(vocabulary, context, tokenizer, max_tokens)[0]
+
+
+def normalized_words(text):
+    return re.findall(r"[^\W_]+(?:['’\-][^\W_]+)*", unicodedata.normalize("NFKC", text).casefold())
+
+
+def is_vocabulary_echo(text, terms):
+    """Recognize prompt-shaped output, never mere overlap with a saved word."""
+    words = normalized_words(text)
+    sequences = [normalized_words(term) for term in terms]
+    sequences = [sequence for sequence in sequences if sequence]
+    if not words or not sequences:
+        return False
+    vocabulary_words = {word for sequence in sequences for word in sequence}
+    if any(word not in vocabulary_words for word in words):
+        return False
+
+    # A single name repeated three or more times is a decoder loop. An ordinary
+    # short dictation such as "Lumora" or "Lumora, Lumora" must survive.
+    for sequence in sequences:
+        if len(words) >= 3 * len(sequence) and len(words) % len(sequence) == 0:
+            if words == sequence * (len(words) // len(sequence)):
+                return True
+
+    # Three consecutive entries in the transmitted list are a likely prompt
+    # continuation. A prompt-free retry also preserves intentional spoken lists.
+    for start in range(len(sequences)):
+        run = []
+        for end in range(start, len(sequences)):
+            run.extend(sequences[end])
+            if len(run) > len(words):
+                break
+            if end - start >= 2 and run == words:
+                return True
+    return False
 
 
 def load_recorded_audio(audio_path):
@@ -262,11 +341,6 @@ def load_recorded_audio(audio_path):
 def transcribe_file(audio_path: str, vocabulary=None, style="natural", context=None) -> dict:
     if style not in ("natural", "professional", "raw"):
         return {"error": "Unknown writing style"}
-    try:
-        prompt = build_initial_prompt(vocabulary, context=context)
-    except ValueError as error:
-        return {"error": str(error)}
-
     status = engine_status()
     if status["status"] != "ready":
         return {"error": status["message"]}
@@ -280,18 +354,21 @@ def transcribe_file(audio_path: str, vocabulary=None, style="natural", context=N
             # into a Hub lookup. Offline flags + the network guard enforce this too.
             if not active_model_path or not complete_model_folder(active_model_path):
                 raise RuntimeError("The downloaded speech model is missing. Restart Press To Write after restoring it.")
+            prompt, sent_terms = build_prompt_plan(vocabulary, context=context)
             audio = load_recorded_audio(audio_path)
-            result = mlx_whisper.transcribe(
-                audio,
-                path_or_hf_repo=active_model_path,
-                fp16=True,
-                verbose=None,
-                initial_prompt=prompt,
-                condition_on_previous_text=False,
-                compression_ratio_threshold=2.4,
-                logprob_threshold=-1.0,
-                no_speech_threshold=0.6,
+            options = dict(
+                path_or_hf_repo=active_model_path, fp16=True, verbose=None,
+                condition_on_previous_text=False, compression_ratio_threshold=2.4,
+                logprob_threshold=-1.0, no_speech_threshold=0.6,
             )
+            result = mlx_whisper.transcribe(audio, initial_prompt=prompt, **options)
+            recovered = is_vocabulary_echo(result.get("text", ""), sent_terms)
+            if recovered:
+                # Reuse the samples once, without any prompt. The worker still
+                # owns cancellation, and the WAV remains available until finally.
+                # Never discard speech just because it uses dictionary words:
+                # an independent decode can confirm an intentional spoken list.
+                result = mlx_whisper.transcribe(audio, initial_prompt=None, **options)
         # Return the recognizer's text exactly. Swift owns style-specific cleanup
         # in one place; Raw bypasses that cleanup completely.
         text = result.get("text", "")
@@ -300,6 +377,7 @@ def transcribe_file(audio_path: str, vocabulary=None, style="natural", context=N
             "text": text,
             "duration": round(time.monotonic() - start_time, 3),
             "model": active_model,
+            "vocabulary_recovery": recovered,
         }
     except Exception as error:
         return {"error": str(error)}

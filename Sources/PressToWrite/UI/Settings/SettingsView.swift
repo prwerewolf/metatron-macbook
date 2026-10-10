@@ -162,6 +162,15 @@ struct StyleSettingsTab: View {
                     Text("Vocabulary & Snippets")
                         .fontWeight(.semibold)
                 }
+
+                Divider()
+
+                Section {
+                    CorrectionLearningSettings()
+                } header: {
+                    Text("Correction Learning")
+                        .fontWeight(.semibold)
+                }
             }
         }
     }

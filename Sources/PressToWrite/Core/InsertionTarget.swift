@@ -35,6 +35,59 @@ public struct InsertionTarget {
 
     public var targetPID: pid_t { processID }
 
+    public func watchCorrectionFocus(_ onChange: @escaping () -> Void) -> CorrectionFocusWatch? {
+        CorrectionFocusWatch(processID: processID, application: applicationElement, onChange: onChange)
+    }
+
+    /// Correction learning has a stricter policy than automatic paste: a known
+    /// control must still be focused, and secure/unsupported controls are excluded.
+    /// Never copy a selection or read an unbounded document to obtain this value.
+    public func correctionSnapshot(
+        currentProcessID: () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+        setMessagingTimeout: (AXUIElement, Float) -> AXError = AXUIElementSetMessagingTimeout,
+        copyAttributeValue: (AXUIElement, CFString, UnsafeMutablePointer<CFTypeRef?>) -> AXError = AXUIElementCopyAttributeValue,
+        copyParameterizedAttributeValue: (AXUIElement, CFString, CFTypeRef, UnsafeMutablePointer<CFTypeRef?>) -> AXError = AXUIElementCopyParameterizedAttributeValue
+    ) -> CorrectionFieldSnapshot? {
+        guard currentProcessID() == processID, let element = focusedElement,
+              let focus = Self.focus(in: applicationElement, setMessagingTimeout: setMessagingTimeout,
+                                     copyAttributeValue: copyAttributeValue), CFEqual(element, focus),
+              setMessagingTimeout(element, 0.05) == .success else { return nil }
+        func attribute(_ name: String) -> CFTypeRef? {
+            var value: CFTypeRef?
+            guard copyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+            return value
+        }
+        var subrole: CFTypeRef?
+        let subroleResult = copyAttributeValue(element, kAXSubroleAttribute as CFString, &subrole)
+        guard subroleResult == .success || subroleResult == .attributeUnsupported || subroleResult == .noValue,
+              subrole as? String != "AXSecureTextField",
+              let role = attribute(kAXRoleAttribute as String) as? String,
+              ["AXTextField", "AXTextArea", "AXComboBox"].contains(role),
+              let count = attribute(kAXNumberOfCharactersAttribute as String) as? NSNumber,
+              count.intValue >= 0, count.intValue <= 8192,
+              let selected = attribute(kAXSelectedTextRangeAttribute as String),
+              CFGetTypeID(selected) == AXValueGetTypeID() else { return nil }
+        let selectedValue = selected as! AXValue
+        var selection = CFRange()
+        guard AXValueGetType(selectedValue) == .cfRange,
+              AXValueGetValue(selectedValue, .cfRange, &selection),
+              selection.location >= 0, selection.length >= 0,
+              selection.location <= count.intValue,
+              selection.length <= count.intValue - selection.location else { return nil }
+        var range = CFRange(location: 0, length: count.intValue)
+        guard let rangeValue = AXValueCreate(.cfRange, &range) else { return nil }
+        var value: CFTypeRef?
+        if count.intValue == 0 { value = "" as CFString }
+        else if copyParameterizedAttributeValue(element, kAXStringForRangeParameterizedAttribute as CFString,
+                                                rangeValue, &value) != .success { return nil }
+        guard let text = value as? String, text.utf16.count == count.intValue,
+              currentProcessID() == processID,
+              let finalFocus = Self.focus(in: applicationElement, setMessagingTimeout: setMessagingTimeout,
+                                          copyAttributeValue: copyAttributeValue), CFEqual(element, finalFocus)
+        else { return nil }
+        return CorrectionFieldSnapshot(text: text, selection: NSRange(location: selection.location, length: selection.length))
+    }
+
     public enum CursorContext: Equatable {
         case character(Character)
         case startOfText
@@ -177,5 +230,37 @@ public struct InsertionTarget {
               let value,
               CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
         return (value as! AXUIElement)
+    }
+}
+
+/// Native focus notifications stop learning even if the user briefly leaves
+/// and returns between polls. Unsupported apps retain the strict polling check.
+public final class CorrectionFocusWatch {
+    private var observer: AXObserver?
+    private let application: AXUIElement
+    private let onChange: () -> Void
+
+    init?(processID: pid_t, application: AXUIElement, onChange: @escaping () -> Void) {
+        self.application = application
+        self.onChange = onChange
+        var observer: AXObserver?
+        let result = AXObserverCreate(processID, { _, _, _, context in
+            guard let context else { return }
+            let watcher = Unmanaged<CorrectionFocusWatch>.fromOpaque(context).takeUnretainedValue()
+            watcher.onChange()
+        }, &observer)
+        guard result == .success, let observer else { return nil }
+        guard AXUIElementSetMessagingTimeout(application, 0.05) == .success,
+              AXObserverAddNotification(observer, application, kAXFocusedUIElementChangedNotification as CFString,
+                                        Unmanaged.passUnretained(self).toOpaque()) == .success else { return nil }
+        self.observer = observer
+        CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+    }
+
+    deinit {
+        if let observer {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
+            AXObserverRemoveNotification(observer, application, kAXFocusedUIElementChangedNotification as CFString)
+        }
     }
 }

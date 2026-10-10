@@ -147,7 +147,13 @@ public final class TextInserter {
                 return
             }
             let pasteStarted = ProcessInfo.processInfo.systemUptime
-            self.sendPasteKeystroke()
+            guard self.sendPasteKeystroke() else {
+                if pasteboard.changeCount == changeCountAfterWrite {
+                    self.restorePasteboard(from: previousSnapshot)
+                }
+                completion?(false)
+                return
+            }
             self.logDuration("paste_dispatch", since: pasteStarted)
             self.logDuration("time_to_paste", since: insertionStarted)
 
@@ -172,32 +178,27 @@ public final class TextInserter {
     }
 
     /// Synthesizes Command + V keypress events into the focused application
-    public func sendPasteKeystroke() {
-        let vKeyCode: CGKeyCode = 9 // 'v' virtual key code on macOS
-
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true)
-        keyDown?.flags = .maskCommand
-
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false)
-        keyUp?.flags = .maskCommand
-
-        keyDown?.post(tap: .cghidEventTap)
-        keyUp?.post(tap: .cghidEventTap)
+    @discardableResult
+    public func sendPasteKeystroke() -> Bool {
+        sendCommandShortcut("v")
     }
 
     /// Synthesizes Command + Z keypress events into the focused application to undo the previous action
-    public func sendUndoKeystroke() {
-        let zKeyCode: CGKeyCode = 6 // 'z' virtual key code on macOS
+    @discardableResult
+    public func sendUndoKeystroke() -> Bool {
+        sendCommandShortcut("z")
+    }
 
+    private func sendCommandShortcut(_ character: String) -> Bool {
+        guard let keyCode = KeyboardShortcutResolver.keyCode(for: character) else { return false }
         let source = CGEventSource(stateID: .combinedSessionState)
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: zKeyCode, keyDown: true)
-        keyDown?.flags = .maskCommand
-
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: zKeyCode, keyDown: false)
-        keyUp?.flags = .maskCommand
-
-        keyDown?.post(tap: .cghidEventTap)
-        keyUp?.post(tap: .cghidEventTap)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        else { return false }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        return true
     }
 }

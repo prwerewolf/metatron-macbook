@@ -48,7 +48,10 @@ The compact pill can be dragged to screen edges and remembers its monitor across
 
 - **Launch at Login:** Option in Settings → General to start Press To Write automatically on macOS login via `SMAppService`.
 - **Microphone:** Choose the system default or a specific input. The level-meter test runs only while enabled, saves no recording, and stops when Settings closes or dictation begins. An unavailable saved microphone produces a clear error instead of silently switching inputs.
-- **Custom vocabulary & Text Replacements:** Comma-separated vocabulary terms guide local recognition. The Text Replacements editor in Settings → Style allows defining voice snippet macros (`phrase -> replacement` or `phrase = replacement`, e.g., `my email -> name@example.com`).
+- **Custom vocabulary & Text Replacements:** Comma-separated vocabulary terms guide local recognition. The Text Replacements editor in Settings → Writing allows defining voice snippet macros (`phrase -> replacement` or `phrase = replacement`, e.g., `my email -> name@example.com`).
+- **Correction Learning:** Enable **Suggest spelling corrections** in Settings → Writing. After a successful paste, the app briefly checks that same accessible, non-secure field for spelling edits. A **Remember this spelling?** panel offers Remember and Dismiss without activating the app. Only words you explicitly remember are saved locally; edit, forget, or clear them under Learned Vocabulary. Learning is off by default and pauses in Incognito. Unsupported controls and large documents are skipped; the feature does not retrain the model.
+- **Prompt Budgeting & Vocabulary Recovery:** Recent document context and complete vocabulary entries share the loaded model's actual token budget. Suspicious vocabulary-list echoes get one local retry without context or vocabulary hints. Short dictations containing saved names remain valid; an intentional spoken list can be confirmed by the retry.
+- **Keyboard Layout Support:** Paste and voice undo resolve the Command shortcut through the current keyboard layout, including input-method fallback to an available ASCII layout. An unresolved shortcut leaves the transcript available for manual paste, and unavailable undo reports how to use the app's Edit menu.
 - **Voice Correction & Undo ("Scratch That"):** Mid-sentence corrections like *"meeting at four, scratch that, five"* replace the abandoned phrase. Speaking *"scratch that"*, *"cancel that"*, or *"undo that"* as a standalone utterance triggers a native `Cmd+Z` undo keystroke with visual feedback on the pill.
 - **Context-Aware Prompt Biasing:** Preceding text from the active document/focused control is automatically read via Accessibility and passed into Whisper's initial prompt, ensuring correct mid-sentence casing, sentence continuation, and document context without manual configuration.
 - **Smart Prefix Spacing:** Consecutive dictations into the same app/control automatically prepend a space, using accessibility cursor inspection with a 45-second fallback for smooth multi-sentence dictation.
@@ -92,6 +95,11 @@ make run    # Restart the app and local daemon
 ## Update an official installation
 
 Quit the app. For a clean clone tracking the official branch, run `git pull --ff-only`, then `make setup` and reopen it. Setup reuses an existing model and updates dependencies to the declared versions. If you downloaded a ZIP, download the newer official source instead and run setup from that folder. Settings and the local runtime live outside the source folder and remain on your Mac. Local signing can require granting Accessibility permission again after a rebuild.
+
+If a legacy Metatron app is still running, quit it and open the newly built
+**Press To Write.app**. An old Metatron shortcut continues to open that older
+bundle. In Writing settings, scroll below Voice Snippets to find Correction
+Learning. macOS permissions are granted separately to the updated application.
 
 If an older clone predates a published history cleanup, download or clone the cleaned repository again. Do not merge or push its old branches into the official repository. See [Maintainer updates and privacy](MAINTAINING.md).
 

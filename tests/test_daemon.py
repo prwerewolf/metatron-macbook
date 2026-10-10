@@ -127,6 +127,8 @@ class EngineTests(unittest.TestCase):
             active_model=None,
             active_model_path=None,
             mlx_whisper=None,
+            prompt_tokenizer=None,
+            prompt_token_budget=223,
             is_engine_ready=False,
             engine_load_error=None,
             engine_message="Loading the local speech model…",
@@ -135,7 +137,15 @@ class EngineTests(unittest.TestCase):
         self.addCleanup(self.patches.stop)
         self.numpy = types.SimpleNamespace(zeros=mock.Mock(return_value="synthetic silence"), float32="float32")
         self.engine = types.SimpleNamespace(transcribe=mock.Mock(return_value={"text": ""}))
-        self.modules = mock.patch.dict("sys.modules", {"numpy": self.numpy, "mlx_whisper": self.engine})
+        self.tokenizer = types.SimpleNamespace(encode=lambda text: list(text))
+        loaded_model = types.SimpleNamespace(
+            is_multilingual=True, num_languages=100, dims=types.SimpleNamespace(n_text_ctx=448)
+        )
+        self.modules = mock.patch.dict("sys.modules", {
+            "numpy": self.numpy, "mlx_whisper": self.engine,
+            "mlx_whisper.transcribe": types.SimpleNamespace(ModelHolder=types.SimpleNamespace(model=loaded_model)),
+            "mlx_whisper.tokenizer": types.SimpleNamespace(get_tokenizer=lambda *args, **kwargs: self.tokenizer),
+        })
         self.modules.start()
         self.addCleanup(self.modules.stop)
 
@@ -303,11 +313,104 @@ class EngineTests(unittest.TestCase):
         self.assertNotEqual(threads[0], threading.get_ident())
 
     def test_prompt_is_bounded_and_rejects_non_text(self):
-        self.assertLessEqual(len(daemon.vocabulary_prompt(["word" + str(n) for n in range(1000)])), 500)
+        self.warm_engine()
+        prompt = daemon.build_initial_prompt(["word" + str(n) for n in range(1000)])
+        self.assertLessEqual(len(self.tokenizer.encode(" " + prompt)), 223)
         with self.assertRaises(ValueError):
             daemon.vocabulary_prompt("a string is not a vocabulary list")
         with self.assertRaises(ValueError):
             daemon.vocabulary_prompt([1])
+
+    def test_vocabulary_echo_retries_same_samples_without_any_prompt(self):
+        self.warm_engine()
+        self.engine.transcribe.reset_mock()
+        self.engine.transcribe.side_effect = [
+            {"text": "Lumora, Zephira, Acmetron"}, {"text": "Send the proposal to Lumora."}
+        ]
+        with mock.patch.object(daemon.os.path, "isfile", return_value=True), \
+                mock.patch.object(daemon, "complete_model_folder", return_value=True), \
+                mock.patch.object(daemon, "load_recorded_audio", return_value="same samples"), \
+                mock.patch.object(daemon.os, "remove") as remove:
+            result = daemon.transcribe_file("/temporary/audio.wav", ["Lumora", "Zephira", "Acmetron"], context="Earlier sentence")
+        self.assertEqual(result["text"], "Send the proposal to Lumora.")
+        self.assertTrue(result["vocabulary_recovery"])
+        self.assertEqual(self.engine.transcribe.call_count, 2)
+        self.assertIsNone(self.engine.transcribe.call_args.kwargs["initial_prompt"])
+        self.assertEqual([call.args[0] for call in self.engine.transcribe.call_args_list], ["same samples"] * 2)
+        remove.assert_called_once()
+
+    def test_prompt_free_retry_preserves_intentionally_spoken_dictionary_list(self):
+        self.warm_engine()
+        self.engine.transcribe.reset_mock()
+        self.engine.transcribe.return_value = {"text": "Lumora, Zephira, Acmetron"}
+        with mock.patch.object(daemon.os.path, "isfile", return_value=True), \
+                mock.patch.object(daemon, "complete_model_folder", return_value=True), \
+                mock.patch.object(daemon, "load_recorded_audio", return_value="samples"), \
+                mock.patch.object(daemon.os, "remove"):
+            result = daemon.transcribe_file("/temporary/audio.wav", ["Lumora", "Zephira", "Acmetron"], style="raw")
+        self.assertEqual(result["text"], "Lumora, Zephira, Acmetron")
+        self.assertEqual(self.engine.transcribe.call_count, 2, "Recovery must not loop")
+
+    def test_recovery_silence_returns_no_text_and_recovery_failure_deletes_audio(self):
+        for retry in ({"text": ""}, RuntimeError("retry failed")):
+            with self.subTest(retry=retry):
+                self.warm_engine()
+                self.engine.transcribe.reset_mock()
+                self.engine.transcribe.side_effect = [{"text": "Lumora Lumora Lumora"}, retry]
+                with mock.patch.object(daemon.os.path, "isfile", return_value=True), \
+                        mock.patch.object(daemon, "complete_model_folder", return_value=True), \
+                        mock.patch.object(daemon, "load_recorded_audio", return_value="samples"), \
+                        mock.patch.object(daemon.os, "remove") as remove:
+                    result = daemon.transcribe_file("/temporary/audio.wav", ["Lumora"])
+                if isinstance(retry, Exception): self.assertEqual(result["error"], "retry failed")
+                else: self.assertEqual(result["text"], "")
+                self.assertEqual(self.engine.transcribe.call_count, 2)
+                remove.assert_called_once()
+                self.engine.transcribe.side_effect = None
+
+
+class PromptAndEchoTests(unittest.TestCase):
+    def setUp(self):
+        # Synthetic tokenizer with deliberately expensive Unicode characters.
+        self.tokenizer = types.SimpleNamespace(encode=lambda text: [
+            token for character in text for token in range(3 if ord(character) > 127 else 1)
+        ])
+
+    def test_shared_token_budget_preserves_context_and_whole_terms(self):
+        prompt, terms = daemon.build_prompt_plan(
+            ["Lumora", "Zephira", "Acmetron", "Überraschung"], "recent context",
+            tokenizer=self.tokenizer, max_tokens=48
+        )
+        self.assertTrue(prompt.startswith("recent context "))
+        self.assertLessEqual(len(self.tokenizer.encode(" " + prompt)), 48)
+        self.assertEqual(prompt, "recent context " + ", ".join(terms))
+
+    def test_dense_context_and_vocabulary_cannot_overflow_combined_budget(self):
+        prompt, terms = daemon.build_prompt_plan(
+            ["語彙" + str(n) for n in range(100)], "文脈" * 100,
+            tokenizer=self.tokenizer, max_tokens=223
+        )
+        self.assertTrue(terms)
+        self.assertLessEqual(len(self.tokenizer.encode(" " + prompt)), 223)
+
+    def test_oversized_entry_is_skipped_instead_of_partially_spelled(self):
+        prompt, terms = daemon.build_prompt_plan(
+            ["x" * 101, "y" * 100, "Lumora"], tokenizer=self.tokenizer, max_tokens=24
+        )
+        self.assertEqual(terms, ["Lumora"])
+        self.assertEqual(prompt, "Lumora")
+
+    def test_missing_tokenizer_fails_without_an_approximate_budget(self):
+        with mock.patch.object(daemon, "prompt_tokenizer", None), self.assertRaisesRegex(ValueError, "tokenizer"):
+            daemon.build_initial_prompt(["Lumora"])
+
+    def test_echo_is_prompt_shape_rather_than_vocabulary_overlap(self):
+        terms = ["Lumora", "Zephira", "Acmetron", "macOS"]
+        for text in ("Lumora, Zephira, Acmetron", "Zephira, Acmetron, macOS", "Lumora Lumora Lumora"):
+            with self.subTest(text=text): self.assertTrue(daemon.is_vocabulary_echo(text, terms))
+        for text in ("Lumora", "Lumora, Lumora", "macOS and Lumora", "Lumora, Zephira", "Lumora macOS Zephira"):
+            with self.subTest(text=text): self.assertFalse(daemon.is_vocabulary_echo(text, terms))
+        self.assertFalse(daemon.is_vocabulary_echo("Unsent, Dictionary, Words", terms))
 
 
 class DaemonConnectionTests(unittest.TestCase):

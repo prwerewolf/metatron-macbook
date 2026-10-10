@@ -6,6 +6,39 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 ### Recently Completed & Verified
 
+**Local dictation improvements (October 10, 2026):**
+
+- Paste and voice undo resolve Command shortcuts from the active keyboard layout.
+  Unsupported mappings fail without sending a guessed physical key; manual paste
+  remains available and failed undo no longer reports success.
+- The warmed MLX model supplies the tokenizer and prompt-window size. Recent
+  context and whole vocabulary entries share one token budget, reserving context
+  instead of allowing a large dictionary to crowd it out.
+- Prompt-shaped vocabulary echoes receive at most one decode of the same samples
+  without hints. Real speech containing vocabulary words, intentional lists, Raw
+  output, and temporary recording cleanup are covered by regressions.
+- Added opt-in correction suggestions after a verified paste. Learning uses only
+  a bounded non-secure control with exact focus checks and native focus-change
+  notifications when available. Stable spelling edits offer Remember/Dismiss.
+  Only accepted words persist locally; management lives in Writing settings.
+  Incognito, cancellation, a new dictation, and focus loss stop observation.
+- Verified all Swift regression suites and 70 Python tests. The installed local
+  tokenizer was exercised with English, dense Unicode, and long technical terms
+  under the daemon's network guard. The actual cached model warmed to Ready with
+  a 223-token prompt window. Debug compilation, release packaging, bundle-signature
+  verification, bundled-daemon identity, and the source privacy check passed.
+  Synthetic settings and suggestion states were inspected in light and dark mode.
+- The release bundle uses ad-hoc local signing; macOS may require granting
+  Accessibility again. Reopen the rebuilt app to load this update. Learning is
+  off by default; enable Suggest spelling corrections below Voice Snippets in
+  Settings → Writing. A legacy Metatron settings window belongs to the older app;
+  use the rebuilt Press To Write app to access the new controls.
+- Release through a reviewed branch with the required current-head privacy and
+  macOS checks, then the neutral-identity fast-forward route in MAINTAINING.md.
+  Application bundles, preferences, local spelling lists, and recordings remain
+  outside the source release. Live dictation with alternative physical keyboard
+  layouts has not been exercised.
+
 **Community sharing preparation (October 7, 2026):**
 
 - Replaced personal fixtures and machine-specific examples with synthetic values.
@@ -109,10 +142,11 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - **Build Script Signing Hardening (`build_app.sh`)**: Added graceful ad-hoc signing fallback if persistent developer identity signing cannot access the keychain or is run non-interactively.
 
 ### Verification Status
-- All Swift regression suites passed locally (15 cleaner tests, local-daemon-client, 35 hotkeys, 15 insertion-target, 14 microphone, 14 audio-conversion/config, 9 pill-display, and app-state).
-- All 62 Python tests passed: 39 daemon tests, 7 setup tests, and 16 privacy tests.
+- All ten Swift regression suites passed locally: cleaner, local-daemon-client, hotkeys, keyboard shortcuts, correction learning, insertion-target, microphone, audio conversion/config, pill-display, and app-state.
+- All 70 Python tests passed: 47 daemon tests, 7 setup tests, and 16 privacy tests.
 - App bundle cleanly compiles, packages, and signs (`make build`).
-- Privacy check passed (`make privacy` across 62 file versions).
+- Privacy check passed (`make privacy` across 67 file versions).
+- The real cached offline model warmed to Ready with its actual 223-token prompt window. Synthetic light/dark UI checks covered correction suggestions, long spellings, the vocabulary limit, and learned-word management.
 - Physical Fn/microphone dictation and a fresh online install on a second Mac remain manual onboarding checks. Automated tests use synthetic audio and temporary model caches.
 
 ### Publication and handoff
