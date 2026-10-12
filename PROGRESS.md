@@ -6,6 +6,21 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 ### Recently Completed & Verified
 
+**Clean local reinstall and permission recovery (October 12, 2026; verified locally):**
+
+- Removed the active application, legacy application, legacy runtimes, and app
+  preferences after preserving a private recovery backup outside the source tree.
+  Reset the applications' own macOS permission records.
+- Reinstalled the pinned Python runtime and rebuilt the official source with the
+  persistent local signing identity. Installed a single application copy in the
+  Applications folder; its bundle signature and designated requirement passed.
+  Reinstalled the optional English engine with its verified assets and tokenizer.
+- After a full quit and relaunch, the app showed Microphone and Accessibility as
+  Granted, All Permissions Active, and Whisper Ready. The permission window did
+  not reopen automatically. Settings use fresh defaults; former preferences and
+  recovery recordings remain in the private backup. Physical hotkey dictation
+  remains a manual verification step. This reinstall was performed locally.
+
 **Application-Aware Contextual Dictation & Strict Em Dash Prohibition (October 12, 2026; verified locally):**
 
 - Added Application-Aware Contextual Dictation that automatically detects the frontmost application category (Code/Terminal, Chat/Messaging, or Prose/Documents) using native macOS bundle IDs and dynamically adapts formatting.
