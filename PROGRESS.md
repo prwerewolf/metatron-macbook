@@ -6,6 +6,19 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 ### Recently Completed & Verified
 
+**Correction-learning regression timing (October 12, 2026; verified locally):**
+
+- The asynchronous regression waits for the initial paste to be observed before
+  editing its simulated field, then waits for settled suggestions and focus-loss
+  invalidation with bounded deadlines. This prevents scheduler delays from
+  turning the fixture into an unverified paste.
+- Explicit assertions require another observation after the first edit and the
+  full settling window before publication. Unverified-paste rejection, focus
+  loss, cancellation, and expiration remain covered.
+- All eleven Swift regression suites, all 84 Python tests, and the release build
+  passed locally. The correction-learning regression also passed 25 consecutive
+  runs. The application uses the existing correction-monitor behavior.
+
 **Clean local reinstall and permission recovery (October 12, 2026; verified locally):**
 
 - Removed the active application, legacy application, legacy runtimes, and app

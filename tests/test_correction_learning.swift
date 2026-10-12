@@ -7,6 +7,16 @@ struct CorrectionLearningTests {
     }
 
     @MainActor
+    static func waitUntil(_ description: String, condition: () -> Bool) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while !condition() {
+            precondition(ProcessInfo.processInfo.systemUptime < deadline,
+                         "Timed out waiting for \(description)")
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    @MainActor
     static func main() async throws {
         let suggestion = VocabularySuggestion(original: "Lumara", word: "Lumora")
         precondition(CorrectionLearner.suggestions(original: "Send the proposal to Lumara.", edited: "Send the proposal to Lumora.", knownWords: []) == [suggestion])
@@ -44,25 +54,39 @@ struct CorrectionLearningTests {
         var current: CorrectionFieldSnapshot? = snapshot(insertion.expectedText)
         var published: [VocabularySuggestion] = []
         var invalidations = 0
-        monitor.start(capture: insertion, knownWords: [], read: { current },
-                      onSuggestions: { published = $0 }, onInvalidated: { invalidations += 1 },
-                      interval: 5_000_000, duration: 0.5, settleDuration: 0.02)
-        try await Task.sleep(nanoseconds: 20_000_000)
+        var verifiedReads = 0
+        var editedReads = 0
+        var editedAt: TimeInterval?
+        let settleDuration = 0.02
+        monitor.start(capture: insertion, knownWords: [], read: {
+            if current?.text == insertion.expectedText { verifiedReads += 1 }
+            if current?.text == "Send this to Lumora." { editedReads += 1 }
+            return current
+        }, onSuggestions: {
+            if !$0.isEmpty {
+                precondition(editedReads > 1, "The first observed edit must not publish immediately")
+                precondition(editedAt.map { ProcessInfo.processInfo.systemUptime - $0 >= settleDuration } == true,
+                             "Partial edits must settle before suggesting")
+            }
+            published = $0
+        }, onInvalidated: { invalidations += 1 },
+        interval: 5_000_000, duration: 5, settleDuration: settleDuration)
+        // Await observation before editing: a delayed initial poll must not see
+        // the corrected text as an unverified paste.
+        try await waitUntil("the initial paste to be verified") { verifiedReads > 0 }
+        editedAt = ProcessInfo.processInfo.systemUptime
         current = snapshot("Send this to Lumora.")
-        try await Task.sleep(nanoseconds: 10_000_000)
-        precondition(published.isEmpty, "Partial edits must settle before suggesting")
-        try await Task.sleep(nanoseconds: 45_000_000)
-        precondition(published == [suggestion])
+        try await waitUntil("the settled spelling suggestion") { published == [suggestion] }
         current = nil
-        try await Task.sleep(nanoseconds: 20_000_000)
+        try await waitUntil("focus loss to invalidate observation") { invalidations == 1 }
         precondition(invalidations == 1, "Leaving the control must invalidate observation")
         monitor.stop()
 
         var wrongPasteSuggestions = 0
         monitor.start(capture: insertion, knownWords: [], read: { snapshot("Some unrelated field") },
                       onSuggestions: { _ in wrongPasteSuggestions += 1 }, onInvalidated: { invalidations += 1 },
-                      interval: 5_000_000, duration: 0.05, settleDuration: 0)
-        try await Task.sleep(nanoseconds: 20_000_000)
+                      interval: 5_000_000, duration: 5, settleDuration: 0)
+        try await waitUntil("an unverified paste to invalidate observation") { invalidations == 2 }
         precondition(invalidations == 2 && wrongPasteSuggestions == 0,
                      "An unverified paste must never teach vocabulary")
         monitor.stop()
