@@ -76,9 +76,12 @@ The compact pill can be dragged to screen edges and remembers its monitor across
 - **Hallucination & Sound Artifact Guard:** Filters hallucinated Whisper audio annotations (such as `[Music]`, `[Applause]`, `(laughter)`) on non-speech audio, quietly resetting to "No Speech Detected" rather than inserting ghost tokens.
 - **Audio Rescue & Recovery:** If an audio device disconnects mid-speech or an unexpected engine error occurs, Press To Write preserves the raw audio recording in `~/Library/Application Support/Press To Write/last_recording.wav`. The **Transcribe Last Recording** menu item in the macOS status bar allows immediate one-click recovery of the dictated speech directly to your clipboard.
 - **Accidental Click Guard:** Hotkey presses shorter than 0.25 seconds are silently discarded without transcription or error chimes.
+- **Auto-Adapt Style to Target App:** When enabled in Settings -> Writing, Press To Write automatically detects the frontmost application category using native macOS bundle IDs (Code for IDEs and terminals, casual punctuation for chat apps, and Prose for documents and notes).
+- **Code (Technical & Symbols):** Technical symbol formatting (such as `--`, `-`, `_`, `/`, backticks, `==`, `!=`, `->`, `=>`, `..`, `.`, `::`, `;`, `:`, `@`, `#`, `$`, `%`, `&`, `&&`, `|`, `||`, `++`, `*`, brackets, braces, parentheses), spoken casing macros (camelCase, snake_case, kebab-case, CONSTANT_CASE, PascalCase), lowercase command-name preservation, and trailing period suppression.
 - **Professional (Default):** Natural cleanup plus spoken punctuation (`comma`, `period`, `new line`, `new paragraph`), bullet commands, and sentence capitalization with context-aware continuation casing.
 - **Natural:** Conservative removal of clear hesitations and obvious repetition loops, preserving wording, casing, and literal punctuation words.
 - **Raw:** The recognizer's output without text cleanup, vocabulary replacements, or formatting. Vocabulary still guides recognition itself.
+- **Punctuation Hygiene:** All transcription styles strictly convert Unicode em and en dashes to standard ASCII hyphens.
 - **Clipboard:** Existing transient clipboard markers and automatic restoration are used for insertion. “Keep Speech on System Clipboard” retains copied speech when enabled. If Accessibility is unavailable, the existing copy-to-clipboard fallback remains available.
 - **History:** Session Only is the default. Incognito disables history; rolling limits keep the last 10 or 50 entries in memory. History is not persisted across app restarts.
 

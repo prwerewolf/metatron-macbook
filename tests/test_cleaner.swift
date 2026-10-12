@@ -238,8 +238,85 @@ struct TestRunner {
         assert(newSentenceResult == "And then we proceed.", "Test 15 Failed: new sentence was not capitalized: '\(newSentenceResult)'")
         print("Test 15 (Sentence Continuation Casing): ✓ PASSED\n")
 
+        // Test 16: Code style symbol conversions
+        let codeInput1 = "git checkout dash b feature"
+        let codeOutput1 = cleaner.clean(text: codeInput1, style: .code)
+        assert(codeOutput1 == "git checkout -b feature", "Test 16 Failed: dash flag: '\(codeOutput1)'")
+
+        let codeInput2 = "git status dash dash short"
+        let codeOutput2 = cleaner.clean(text: codeInput2, style: .code)
+        assert(codeOutput2 == "git status --short", "Test 16 Failed: double dash flag: '\(codeOutput2)'")
+
+        let codeInput3 = "npm run test slash unit"
+        let codeOutput3 = cleaner.clean(text: codeInput3, style: .code)
+        assert(codeOutput3 == "npm run test/unit", "Test 16 Failed: slash in path: '\(codeOutput3)'")
+
+        let codeInput4 = "cd dot dot slash scripts"
+        let codeOutput4 = cleaner.clean(text: codeInput4, style: .code)
+        assert(codeOutput4 == "cd ../scripts", "Test 16 Failed: dot dot slash: '\(codeOutput4)'")
+
+        let codeInput5 = "foo dot bar equals 5 semicolon"
+        let codeOutput5 = cleaner.clean(text: codeInput5, style: .code)
+        assert(codeOutput5 == "foo.bar = 5;", "Test 16 Failed: dot, equals, semicolon: '\(codeOutput5)'")
+
+        let codeInput6 = "a double equals b and c not equals d"
+        let codeOutput6 = cleaner.clean(text: codeInput6, style: .code)
+        assert(codeOutput6 == "a == b and c != d", "Test 16 Failed: comparison operators: '\(codeOutput6)'")
+
+        let codeInput7 = "x arrow y"
+        let codeOutput7 = cleaner.clean(text: codeInput7, style: .code)
+        assert(codeOutput7 == "x -> y", "Test 16 Failed: arrow: '\(codeOutput7)'")
+        print("Test 16 (Code Style Symbols): ✓ PASSED\n")
+
+        // Test 17: Code style casing macros
+        let camelInput = "camel case user profile photo"
+        let camelOutput = cleaner.clean(text: camelInput, style: .code)
+        assert(camelOutput == "userProfilePhoto", "Test 17 Failed: camelCase: '\(camelOutput)'")
+
+        let snakeInput = "snake case user profile photo"
+        let snakeOutput = cleaner.clean(text: snakeInput, style: .code)
+        assert(snakeOutput == "user_profile_photo", "Test 17 Failed: snake_case: '\(snakeOutput)'")
+
+        let kebabInput = "kebab case user profile photo"
+        let kebabOutput = cleaner.clean(text: kebabInput, style: .code)
+        assert(kebabOutput == "user-profile-photo", "Test 17 Failed: kebab-case: '\(kebabOutput)'")
+
+        let constInput = "constant case max buffer size"
+        let constOutput = cleaner.clean(text: constInput, style: .code)
+        assert(constOutput == "MAX_BUFFER_SIZE", "Test 17 Failed: CONSTANT_CASE: '\(constOutput)'")
+
+        let pascalInput = "pascal case app state"
+        let pascalOutput = cleaner.clean(text: pascalInput, style: .code)
+        assert(pascalOutput == "AppState", "Test 17 Failed: PascalCase: '\(pascalOutput)'")
+        print("Test 17 (Code Casing Macros): ✓ PASSED\n")
+
+        // Test 18: Code style initial lowercase and trailing period suppression
+        let engineRecognizedCommand = "Git status."
+        let codeCommandOutput = cleaner.clean(text: engineRecognizedCommand, style: .code)
+        assert(codeCommandOutput == "git status", "Test 18 Failed: initial lowercase & trailing period suppression: '\(codeCommandOutput)'")
+        print("Test 18 (Code Case & Period Suppression): ✓ PASSED\n")
+
+        // Test 19: Strict Em Dash Prohibition across all styles
+        let emDashInput = "Important note\u{2014}do not forget this\u{2014}period"
+        for style in [TranscriptionStyle.professional, .natural, .code, .raw] {
+            let output = cleaner.clean(text: emDashInput, style: style)
+            assert(!output.contains("\u{2014}"), "Test 19 Failed: output in \(style) contained an em dash: '\(output)'")
+            assert(!output.contains("—"), "Test 19 Failed: output in \(style) contained an em dash: '\(output)'")
+            assert(!output.contains("\u{2013}"), "Test 19 Failed: output in \(style) contained an en dash: '\(output)'")
+        }
+        print("Test 19 (Strict Em Dash Prohibition): ✓ PASSED\n")
+
+        // Test 20: Chat single-sentence period omission
+        let chatCasual = "Sounds good see you tomorrow."
+        let chatOutput = cleaner.clean(text: chatCasual, style: .natural, isChat: true)
+        assert(chatOutput == "Sounds good see you tomorrow", "Test 20 Failed: chat trailing period: '\(chatOutput)'")
+        let chatQuestion = "Are you available?"
+        let questionOutput = cleaner.clean(text: chatQuestion, style: .natural, isChat: true)
+        assert(questionOutput == "Are you available?", "Test 20 Failed: chat question mark: '\(questionOutput)'")
+        print("Test 20 (Chat Casual Punctuation): ✓ PASSED\n")
+
         print("==================================================")
-        print("  All Metatron TextCleaner Tests PASSED! (15/15)")
+        print("  All Metatron TextCleaner Tests PASSED! (20/20)")
         print("==================================================")
     }
 }

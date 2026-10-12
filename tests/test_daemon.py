@@ -270,7 +270,7 @@ class EngineTests(unittest.TestCase):
 
     def test_raw_and_other_styles_preserve_recognizer_text_for_single_swift_cleanup(self):
         original = "  um go now go now.  \n"
-        for style in ("raw", "natural", "professional"):
+        for style in ("raw", "natural", "professional", "code"):
             with self.subTest(style=style):
                 result = self.transcribe(original, style=style)
                 self.assertEqual(result["text"], original)

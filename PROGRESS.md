@@ -6,6 +6,15 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 ### Recently Completed & Verified
 
+**Application-Aware Contextual Dictation & Strict Em Dash Prohibition (October 12, 2026; verified locally):**
+
+- Added Application-Aware Contextual Dictation that automatically detects the frontmost application category (Code/Terminal, Chat/Messaging, or Prose/Documents) using native macOS bundle IDs and dynamically adapts formatting.
+- Introduced a dedicated `.code` transcription style supporting spoken technical symbols (such as `--`, `-`, `_`, `/`, `\`, backticks, `==`, `!=`, `->`, `=>`, `..`, `.`, `::`, `;`, `:`, `@`, `#`, `$`, `%`, `&`, `&&`, `|`, `||`, `++`, `*`, brackets, braces, parentheses, newlines, and tabs), spoken casing macros (camelCase, snake_case, kebab-case, CONSTANT_CASE, PascalCase), lowercase command-name preservation, and trailing period suppression.
+- Added casual chat punctuation formatting for messaging apps, omitting formal single trailing periods in conversational chat while preserving exclamation marks and question marks.
+- Implemented strict em dash and en dash prohibition across all transcription styles (including Raw mode), unconditionally sanitizing Unicode em and en dash variants into standard ASCII hyphens.
+- Added an "Auto-Adapt Style to Target App" toggle in Settings -> Writing, persisted across app sessions via UserDefaults.
+- Verified all 20 TextCleaner unit tests (including symbol conversions, casing macros, command preservation, chat punctuation, and em dash sanitization), all AppState regression tests, all InsertionTarget category tests, and all 84 Python daemon tests. Release build and bundle signing succeeded.
+
 **Optional local English streaming (October 10, 2026; verified locally):**
 
 - Fixed the Nemotron Q8 export's missing SentencePiece tokenizer. Setup embeds

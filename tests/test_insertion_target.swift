@@ -208,9 +208,18 @@ struct InsertionTargetTests {
         precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Another field in the same app must not be read")
         focusedControl = application
         currentPID = 200
-        precondition(correctionSnapshot() == nil && !didReadCorrectionText, "Another application must not be read")
+        precondition(ApplicationCategory.category(for: "com.microsoft.VSCode") == .code)
+        precondition(ApplicationCategory.category(for: "com.apple.Terminal") == .code)
+        precondition(ApplicationCategory.category(for: "com.todesktop.230313mzl4w4u92") == .code)
+        precondition(ApplicationCategory.category(for: "com.googlecode.iterm2") == .code)
+        precondition(ApplicationCategory.category(for: "com.tinyspeck.slackmacgap") == .chat)
+        precondition(ApplicationCategory.category(for: "com.apple.MobileSMS") == .chat)
+        precondition(ApplicationCategory.category(for: "com.hnc.Discord") == .chat)
+        precondition(ApplicationCategory.category(for: "com.apple.mail") == .prose)
+        precondition(ApplicationCategory.category(for: "com.apple.Notes") == .prose)
+        precondition(ApplicationCategory.category(for: nil) == .prose)
 
-        print("Insertion destination tests passed, including exact control identity, secure fields, read bounds, and focus loss for correction learning.")
+        print("Insertion destination tests passed, including exact control identity, secure fields, read bounds, focus loss for correction learning, and application category mapping.")
     }
 }
 

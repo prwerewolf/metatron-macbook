@@ -17,7 +17,7 @@ public struct FloatingPillView: View {
             }
         }
         .background(pillBackground)
-        .help(appState.isRecording ? "Listening — press Escape to cancel" : appState.engineStatus.phase == .ready ? appState.statusMessage : appState.engineStatus.message)
+        .help(appState.isRecording ? "Listening: press Escape to cancel" : appState.engineStatus.phase == .ready ? appState.statusMessage : appState.engineStatus.message)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovering = hovering

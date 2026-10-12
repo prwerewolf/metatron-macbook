@@ -1,6 +1,16 @@
 import AppKit
 import ApplicationServices
 
+public enum ApplicationCategory: String, CaseIterable, Sendable {
+    case code
+    case chat
+    case prose
+
+    public static func category(for bundleIdentifier: String?) -> ApplicationCategory {
+        InsertionTarget.category(for: bundleIdentifier)
+    }
+}
+
 /// The application and focused control that owned the cursor when dictation began.
 /// Checking a target never activates an application or changes keyboard focus.
 public struct InsertionTarget {
@@ -34,6 +44,71 @@ public struct InsertionTarget {
     }
 
     public var targetPID: pid_t { processID }
+
+    public var targetBundleIdentifier: String? {
+        NSRunningApplication(processIdentifier: processID)?.bundleIdentifier
+    }
+
+    public var applicationCategory: ApplicationCategory {
+        Self.category(for: targetBundleIdentifier)
+    }
+
+    public static func category(for bundleIdentifier: String?) -> ApplicationCategory {
+        guard let bundleID = bundleIdentifier?.lowercased() else { return .prose }
+        let codeBundleIDs: Set<String> = [
+            "com.microsoft.vscode",
+            "com.microsoft.vscodeinsiders",
+            "com.todesktop.230313mzl4w4u92",
+            "com.apple.dt.xcode",
+            "com.apple.terminal",
+            "com.googlecode.iterm2",
+            "dev.warp.warp-stable",
+            "dev.warp.warp",
+            "com.sublimetext.4",
+            "com.sublimetext.3",
+            "com.jetbrains.intellij",
+            "com.jetbrains.intellij.ce",
+            "com.jetbrains.pycharm",
+            "com.jetbrains.pycharm.ce",
+            "com.jetbrains.webstorm",
+            "com.jetbrains.clion",
+            "com.jetbrains.rider",
+            "com.jetbrains.goland",
+            "com.jetbrains.rubymine",
+            "com.jetbrains.datagrip",
+            "com.jetbrains.fleet",
+            "com.panic.nova",
+            "com.mitchellh.ghostty",
+            "co.zeit.hyper",
+            "net.kovidgoyal.kitty",
+            "io.alacritty",
+            "com.github.wez.wezterm",
+            "com.google.android.studio",
+            "com.postmanlabs.mac",
+            "com.insomnia.app",
+            "com.sequel-ace.sequel-ace",
+            "com.tableplus.tableplus"
+        ]
+        if codeBundleIDs.contains(bundleID) { return .code }
+
+        let chatBundleIDs: Set<String> = [
+            "com.tinyspeck.slackmacgap",
+            "com.apple.mobilesms",
+            "com.hnc.discord",
+            "org.whispersystems.signal-desktop",
+            "com.microsoft.teams2",
+            "com.microsoft.teams",
+            "ru.keepcoder.telegram",
+            "com.tdesktop.telegram",
+            "com.facebook.archon",
+            "net.whatsapp.whatsapp",
+            "com.element.desktop",
+            "chat.rocket"
+        ]
+        if chatBundleIDs.contains(bundleID) { return .chat }
+
+        return .prose
+    }
 
     public func watchCorrectionFocus(_ onChange: @escaping () -> Void) -> CorrectionFocusWatch? {
         CorrectionFocusWatch(processID: processID, application: applicationElement, onChange: onChange)

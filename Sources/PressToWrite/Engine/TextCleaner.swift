@@ -3,6 +3,7 @@ import Foundation
 public enum TranscriptionStyle: String, CaseIterable, Identifiable, Codable, Sendable {
     case natural = "Natural (Direct, No Fillers)"
     case professional = "Professional (Polished & Formatted)"
+    case code = "Code (Technical & Symbols)"
     case raw = "Raw (Verbatim)"
 
     public var id: String { rawValue }
@@ -26,16 +27,18 @@ public final class TextCleaner {
 
     private init() {}
 
-    /// Raw preserves the exact recognizer output, including whitespace. Natural
-    /// removes clear disfluencies; Professional additionally interprets formatting commands.
+    /// Raw preserves the exact recognizer output, including whitespace, while sanitizing
+    /// em dashes. Natural removes clear disfluencies; Professional additionally interprets
+    /// formatting commands; Code formats technical symbols and casing macros.
     public func clean(
         text: String,
         style: TranscriptionStyle = .professional,
         vocabulary: [String]? = nil,
         replacements: [TextReplacement]? = nil,
-        isContinuation: Bool = false
+        isContinuation: Bool = false,
+        isChat: Bool = false
     ) -> String {
-        if style == .raw { return text }
+        if style == .raw { return sanitizeEmDashes(text) }
 
         var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if result.isEmpty { return "" }
@@ -45,21 +48,62 @@ public final class TextCleaner {
         result = removeFillerWords(result)
         result = deduplicateStutters(result)
         result = deduplicateRepetitivePhrases(result)
-        result = normalizeWhitespace(result)
 
-        if style == .professional {
-            result = convertSpokenPunctuation(result)
-            result = formatSpokenLists(result)
-            result = normalizePunctuationAndSpacing(result, isContinuation: isContinuation)
+        if style == .code {
+            let hadCasingCommand = text.range(of: "^\\s*(?:camel|snake|kebab|constant|screaming\\s*snake|pascal)\\s*case\\b", options: [.regularExpression, .caseInsensitive]) != nil
 
-            if !isContinuation, let first = result.first, first.isLowercase {
-                result = result.prefix(1).uppercased() + result.dropFirst()
+            result = normalizeCodeWhitespace(result)
+            result = applyCasingCommands(result)
+            result = convertSpokenCodeSymbols(result)
+            result = normalizeCodeWhitespace(result)
+
+            // Strip trailing automatic periods added by speech engines in code mode
+            if result.hasSuffix(".") && !result.hasSuffix("..") {
+                result = String(result.dropLast()).trimmingCharacters(in: .whitespaces)
+            }
+
+            // Suppress first-word sentence capitalization unless it is a known vocabulary term,
+            // an all-caps acronym/constant, or was produced by an explicit casing command.
+            if !isContinuation && !hadCasingCommand, let firstChar = result.first, firstChar.isUppercase {
+                let firstWord = result.components(separatedBy: CharacterSet.alphanumerics.inverted).first ?? ""
+                let vocab = vocabulary ?? customVocabulary
+                let isKnownVocab = vocab.contains { $0.caseInsensitiveCompare(firstWord) == .orderedSame }
+                let isAllUppercase = firstWord.count > 1 && firstWord.allSatisfy { !$0.isLetter || $0.isUppercase }
+                if !isKnownVocab && !isAllUppercase {
+                    result = result.prefix(1).lowercased() + result.dropFirst()
+                }
+            }
+        } else {
+            result = normalizeWhitespace(result)
+
+            if style == .professional {
+                result = convertSpokenPunctuation(result)
+                result = formatSpokenLists(result)
+                result = normalizePunctuationAndSpacing(result, isContinuation: isContinuation)
+
+                if !isContinuation, let first = result.first, first.isLowercase {
+                    result = result.prefix(1).uppercased() + result.dropFirst()
+                }
+            } else if style == .natural || isChat {
+                if isChat && !isContinuation {
+                    // If it is a single conversational sentence in chat ending in a single period,
+                    // omit the formal trailing period while preserving exclamation marks or question marks.
+                    if result.hasSuffix(".") && !result.hasSuffix("..") {
+                        let withoutPeriod = String(result.dropLast()).trimmingCharacters(in: .whitespaces)
+                        if !withoutPeriod.contains(".") {
+                            result = withoutPeriod
+                        }
+                    }
+                }
             }
         }
 
         // Apply last so preferred casing such as "macOS" wins over sentence casing.
         result = applyCustomVocabulary(result, terms: vocabulary ?? customVocabulary)
-        return applyTextReplacements(result, replacements: replacements ?? customReplacements)
+        result = applyTextReplacements(result, replacements: replacements ?? customReplacements)
+
+        // Strict guarantee: NEVER EVER emit em dashes in generated text.
+        return sanitizeEmDashes(result)
     }
 
     /// Removes hallucinated Whisper audio/sound descriptions (e.g. "[Music]", "[Applause]", "(laughter)")
@@ -268,6 +312,15 @@ public final class TextCleaner {
         let regex = try? NSRegularExpression(pattern: "[ \\t]+")
         var normalized = regex?.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: text.utf16.count), withTemplate: " ") ?? text
         if let punctuationSpacing = try? NSRegularExpression(pattern: "[ \\t]+([.,!?:;])") {
+            normalized = punctuationSpacing.stringByReplacingMatches(in: normalized, range: NSRange(location: 0, length: normalized.utf16.count), withTemplate: "$1")
+        }
+        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizeCodeWhitespace(_ text: String) -> String {
+        let regex = try? NSRegularExpression(pattern: "[ \\t]+")
+        var normalized = regex?.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: text.utf16.count), withTemplate: " ") ?? text
+        if let punctuationSpacing = try? NSRegularExpression(pattern: "[ \\t]+([,;])") {
             normalized = punctuationSpacing.stringByReplacingMatches(in: normalized, range: NSRange(location: 0, length: normalized.utf16.count), withTemplate: "$1")
         }
         return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -495,4 +548,233 @@ public final class TextCleaner {
         }
         return str
     }
+
+    /// Sanitizes all em dash and en dash variants into standard ASCII hyphens.
+    /// Guarantees that generated text NEVER contains em dashes.
+    public func sanitizeEmDashes(_ text: String) -> String {
+        var str = text
+        // Unicode em dashes: U+2014 (em dash), U+2015 (horizontal bar), U+2E3A, U+2E3B, U+FE58
+        // Unicode en dashes: U+2013 (en dash)
+        let emDashScalars: [String] = [
+            "\u{2014}", // em dash
+            "\u{2013}", // en dash
+            "\u{2015}", // horizontal bar
+            "\u{2E3A}", // two-em dash
+            "\u{2E3B}", // three-em dash
+            "\u{FE58}"  // small em dash
+        ]
+        for dash in emDashScalars {
+            if str.contains(dash) {
+                str = str.replacingOccurrences(of: dash, with: "-")
+            }
+        }
+        return str
+    }
+
+    /// Converts spoken programming casing commands:
+    /// e.g. "camel case user profile" -> "userProfile"
+    /// e.g. "snake case user profile" -> "user_profile"
+    /// e.g. "kebab case user profile" -> "user-profile"
+    /// e.g. "constant case max buffer size" -> "MAX_BUFFER_SIZE"
+    /// e.g. "pascal case app state" -> "AppState"
+    private func applyCasingCommands(_ text: String) -> String {
+        var str = text
+
+        // 1. camel case
+        let camelPattern = "\\b(?:camel\\s*case)\\s+([a-zA-Z0-9]+(?:\\s+[a-zA-Z0-9]+)*)"
+        if let regex = try? NSRegularExpression(pattern: camelPattern, options: [.caseInsensitive]) {
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+            for match in matches.reversed() {
+                if match.numberOfRanges == 2 {
+                    let phraseRange = match.range(at: 1)
+                    let phrase = (str as NSString).substring(with: phraseRange)
+                    let words = phrase.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    if let first = words.first {
+                        let camel = first.lowercased() + words.dropFirst().map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }.joined()
+                        str = (str as NSString).replacingCharacters(in: match.range, with: camel)
+                    }
+                }
+            }
+        }
+
+        // 2. snake case
+        let snakePattern = "\\b(?:snake\\s*case)\\s+([a-zA-Z0-9]+(?:\\s+[a-zA-Z0-9]+)*)"
+        if let regex = try? NSRegularExpression(pattern: snakePattern, options: [.caseInsensitive]) {
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+            for match in matches.reversed() {
+                if match.numberOfRanges == 2 {
+                    let phraseRange = match.range(at: 1)
+                    let phrase = (str as NSString).substring(with: phraseRange)
+                    let words = phrase.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    if !words.isEmpty {
+                        let snake = words.map { $0.lowercased() }.joined(separator: "_")
+                        str = (str as NSString).replacingCharacters(in: match.range, with: snake)
+                    }
+                }
+            }
+        }
+
+        // 3. kebab case
+        let kebabPattern = "\\b(?:kebab\\s*case)\\s+([a-zA-Z0-9]+(?:\\s+[a-zA-Z0-9]+)*)"
+        if let regex = try? NSRegularExpression(pattern: kebabPattern, options: [.caseInsensitive]) {
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+            for match in matches.reversed() {
+                if match.numberOfRanges == 2 {
+                    let phraseRange = match.range(at: 1)
+                    let phrase = (str as NSString).substring(with: phraseRange)
+                    let words = phrase.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    if !words.isEmpty {
+                        let kebab = words.map { $0.lowercased() }.joined(separator: "-")
+                        str = (str as NSString).replacingCharacters(in: match.range, with: kebab)
+                    }
+                }
+            }
+        }
+
+        // 4. constant case / screaming snake case
+        let constPattern = "\\b(?:constant\\s*case|screaming\\s*snake\\s*case)\\s+([a-zA-Z0-9]+(?:\\s+[a-zA-Z0-9]+)*)"
+        if let regex = try? NSRegularExpression(pattern: constPattern, options: [.caseInsensitive]) {
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+            for match in matches.reversed() {
+                if match.numberOfRanges == 2 {
+                    let phraseRange = match.range(at: 1)
+                    let phrase = (str as NSString).substring(with: phraseRange)
+                    let words = phrase.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    if !words.isEmpty {
+                        let constCase = words.map { $0.uppercased() }.joined(separator: "_")
+                        str = (str as NSString).replacingCharacters(in: match.range, with: constCase)
+                    }
+                }
+            }
+        }
+
+        // 5. pascal case
+        let pascalPattern = "\\b(?:pascal\\s*case)\\s+([a-zA-Z0-9]+(?:\\s+[a-zA-Z0-9]+)*)"
+        if let regex = try? NSRegularExpression(pattern: pascalPattern, options: [.caseInsensitive]) {
+            let matches = regex.matches(in: str, range: NSRange(location: 0, length: str.utf16.count))
+            for match in matches.reversed() {
+                if match.numberOfRanges == 2 {
+                    let phraseRange = match.range(at: 1)
+                    let phrase = (str as NSString).substring(with: phraseRange)
+                    let words = phrase.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+                    if !words.isEmpty {
+                        let pascal = words.map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }.joined()
+                        str = (str as NSString).replacingCharacters(in: match.range, with: pascal)
+                    }
+                }
+            }
+        }
+
+        return str
+    }
+
+    /// Converts spoken symbols and code syntax in Code mode.
+    /// Crucially, hyphens and dashes map strictly to '-' or '--', NEVER em dashes.
+    private func convertSpokenCodeSymbols(_ text: String) -> String {
+        var str = text
+
+        // Order matters: match longer phrases first to avoid partial substitutions
+        let mappings: [(String, String)] = [
+            ("\\btriple backtick\\b", "```"),
+            ("\\b(?:double dash|dash\\s+dash|hyphen\\s+hyphen)\\b", "--"),
+            ("\\bdouble dot\\b", ".."),
+            ("\\bdouble equals\\b", "=="),
+            ("\\bnot equals\\b", "!="),
+            ("\\bcolon colon\\b", "::"),
+            ("\\bfat arrow\\b", "=>"),
+            ("\\bright arrow\\b", "->"),
+            ("\\barrow\\b", "->"),
+            ("\\bdouble ampersand\\b", "&&"),
+            ("\\bdouble pipe\\b", "||"),
+            ("\\bplus plus\\b", "++"),
+            ("\\bminus minus\\b", "--"),
+            ("\\bforward slash\\b", "/"),
+            ("\\bback slash\\b", "\\"),
+            ("\\bbackslash\\b", "\\"),
+            ("\\bslash\\b", "/"),
+            ("\\bunder score\\b", "_"),
+            ("\\bunderscore\\b", "_"),
+            ("\\bback tick\\b", "`"),
+            ("\\bbacktick\\b", "`"),
+            ("\\bequal sign\\b", "="),
+            ("\\bequals\\b", "="),
+            ("\\bplus sign\\b", "+"),
+            ("\\bplus\\b", "+"),
+            ("\\bat sign\\b", "@"),
+            ("\\bhashtag\\b", "#"),
+            ("\\bhash sign\\b", "#"),
+            ("\\bhash\\b", "#"),
+            ("\\bdollar sign\\b", "$"),
+            ("\\bpercent sign\\b", "%"),
+            ("\\band sign\\b", "&"),
+            ("\\bampersand\\b", "&"),
+            ("\\bvertical bar\\b", "|"),
+            ("\\bpipe\\b", "|"),
+            ("\\basterisk\\b", "*"),
+            ("\\bstar\\b", "*"),
+            ("\\bopen paren(?:thesis)?\\b", "("),
+            ("\\bclose paren(?:thesis)?\\b", ")"),
+            ("\\bopen bracket\\b", "["),
+            ("\\bclose bracket\\b", "]"),
+            ("\\bopen brace\\b", "{"),
+            ("\\bclose brace\\b", "}"),
+            ("\\bopen curly\\b", "{"),
+            ("\\bclose curly\\b", "}"),
+            ("\\bsemicolon\\b", ";"),
+            ("\\bcolon\\b", ":"),
+            ("\\bcomma\\b", ","),
+            ("\\bnew paragraph\\b", "\n\n"),
+            ("\\bnew line\\b", "\n"),
+            ("\\btab\\b", "\t"),
+            ("\\bdot dot\\b", ".."),
+            ("\\bdot\\b", "."),
+            ("\\bperiod\\b", "."),
+            ("\\bfull stop\\b", "."),
+            // Hyphen / dash mappings: NEVER emit em dashes
+            ("\\bhyphen\\b", "-"),
+            ("\\bdash\\b", "-"),
+            ("\\bminus\\b", "-")
+        ]
+
+        for (pattern, replacement) in mappings {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                let range = NSRange(location: 0, length: str.utf16.count)
+                str = regex.stringByReplacingMatches(in: str, options: [], range: range, withTemplate: NSRegularExpression.escapedTemplate(for: replacement))
+            }
+        }
+
+        // Collapse adjacent hyphens separated by whitespace (e.g. "- -" -> "--")
+        if let doubleHyphenRegex = try? NSRegularExpression(pattern: "(?<![\\w'’-])-[ \\t]+-(?![\\w'’-])") {
+            str = doubleHyphenRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "--")
+        }
+
+        // Tidy spacing around common code symbols
+        // E.g., "-- help" -> "--help", "- m" -> "-m"
+        if let flagRegex = try? NSRegularExpression(pattern: "(?<![\\w'’-])(--|-)[ \\t]+([a-zA-Z0-9])") {
+            str = flagRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "$1$2")
+        }
+        // E.g., "foo . bar" -> "foo.bar"
+        if let dotRegex = try? NSRegularExpression(pattern: "([a-zA-Z0-9_])[ \\t]+\\.[ \\t]+([a-zA-Z0-9_])") {
+            str = dotRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "$1.$2")
+        }
+        // E.g., "foo _ bar" -> "foo_bar"
+        if let underRegex = try? NSRegularExpression(pattern: "([a-zA-Z0-9])[ \\t]*_[ \\t]*([a-zA-Z0-9])") {
+            str = underRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "$1_$2")
+        }
+        // E.g., "foo / bar" -> "foo/bar" in file paths
+        if let slashRegex = try? NSRegularExpression(pattern: "([a-zA-Z0-9_.~])[ \\t]*/[ \\t]*([a-zA-Z0-9_.~])") {
+            str = slashRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "$1/$2")
+        }
+        // E.g., ":: " or " ::" -> "::"
+        if let colonColonRegex = try? NSRegularExpression(pattern: "[ \\t]*::[ \\t]*") {
+            str = colonColonRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: "::")
+        }
+        // E.g., " -> "
+        if let arrowRegex = try? NSRegularExpression(pattern: "[ \\t]*(->|=>)[ \\t]*") {
+            str = arrowRegex.stringByReplacingMatches(in: str, range: NSRange(location: 0, length: str.utf16.count), withTemplate: " $1 ")
+        }
+
+        return str
+    }
 }
+

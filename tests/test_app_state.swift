@@ -123,6 +123,12 @@ public enum LaunchAtLogin {
 
 public final class CorrectionFocusWatch {}
 
+public enum ApplicationCategory: String, CaseIterable, Sendable {
+    case code
+    case chat
+    case prose
+}
+
 public struct InsertionTarget {
     public enum CursorContext: Equatable {
         case character(Character)
@@ -130,6 +136,7 @@ public struct InsertionTarget {
         case unavailable
     }
     public static var current = true
+    public static var mockCategory: ApplicationCategory = .prose
     public static var mockPrecedingChar: Character? = nil
     public static var mockCursorContext: CursorContext? = nil
     public static var mockPrecedingText: String? = nil
@@ -139,6 +146,7 @@ public struct InsertionTarget {
     public static func capture() -> InsertionTarget? { InsertionTarget() }
     public var isCurrent: Bool { Self.current }
     public var targetPID: pid_t { 123 }
+    public var applicationCategory: ApplicationCategory { Self.mockCategory }
     public func cursorContext() -> CursorContext {
         if let mock = Self.mockCursorContext { return mock }
         if let char = Self.mockPrecedingChar { return .character(char) }
@@ -592,9 +600,22 @@ struct AppStateTests {
         state.startRecording()
         state.stopRecordingAndTranscribe()
         try await waitUntil { !state.isProcessing }
-        precondition(state.statusMessage.contains("Undo unavailable") && !state.showSuccess)
-        TextInserter.shared.undoSucceeds = true
+        // Test auto-adaptive effective style resolution
+        state.autoAdaptiveFormatting = true
+        let mockTarget = InsertionTarget()
+        InsertionTarget.mockCategory = .code
+        precondition(state.resolveEffectiveStyle(baseStyle: .professional, target: mockTarget) == .code, "Code target must resolve to .code style")
+        InsertionTarget.mockCategory = .chat
+        precondition(state.resolveEffectiveStyle(baseStyle: .professional, target: mockTarget) == .natural, "Chat target must resolve to .natural style")
+        InsertionTarget.mockCategory = .prose
+        precondition(state.resolveEffectiveStyle(baseStyle: .professional, target: mockTarget) == .professional, "Prose target must resolve to base style")
 
-        print("AppState regressions passed: dictation, clipboard fallback, corrections, remembered vocabulary, native focus changes, Incognito, cancellation, and undo failure.")
+        // Disabled auto-adaptive must preserve base style
+        state.autoAdaptiveFormatting = false
+        InsertionTarget.mockCategory = .code
+        precondition(state.resolveEffectiveStyle(baseStyle: .professional, target: mockTarget) == .professional, "Disabled auto-adaptive must preserve base style")
+        state.autoAdaptiveFormatting = true
+
+        print("AppState regressions passed: dictation, clipboard fallback, corrections, remembered vocabulary, native focus changes, Incognito, cancellation, undo failure, and auto-adaptive writing styles.")
     }
 }

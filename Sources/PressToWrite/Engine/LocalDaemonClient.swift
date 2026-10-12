@@ -408,6 +408,7 @@ public final class LocalDaemonClient: SpeechEngineProtocol, @unchecked Sendable 
         switch style {
         case .natural: styleID = "natural"
         case .professional: styleID = "professional"
+        case .code: styleID = "code"
         case .raw: styleID = "raw"
         }
         let requestID = UUID().uuidString

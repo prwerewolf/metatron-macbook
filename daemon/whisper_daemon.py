@@ -344,7 +344,7 @@ def load_recorded_audio(audio_path):
 
 
 def transcribe_file(audio_path: str, vocabulary=None, style="natural", context=None) -> dict:
-    if style not in ("natural", "professional", "raw"):
+    if style not in ("natural", "professional", "raw", "code"):
         return {"error": "Unknown writing style"}
     status = engine_status()
     if status["status"] != "ready":

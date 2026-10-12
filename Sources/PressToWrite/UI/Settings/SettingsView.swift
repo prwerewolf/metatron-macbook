@@ -113,7 +113,12 @@ struct StyleSettingsTab: View {
         ScrollView {
             Form {
                 Section {
-                    Picker("Transcription Style", selection: $appState.transcriptionStyle) {
+                    Toggle("Auto-Adapt Style to Target App", isOn: $appState.autoAdaptiveFormatting)
+                    Text("Automatically applies Code formatting in coding editors and terminals, conversational formatting in chat apps, and your chosen style in documents.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("Default Transcription Style", selection: $appState.transcriptionStyle) {
                         ForEach(TranscriptionStyle.allCases) { style in
                             Text(style.rawValue).tag(style)
                         }
@@ -181,6 +186,8 @@ struct StyleSettingsTab: View {
             return "Light cleanup: removes clear hesitations while preserving your wording, punctuation, and sentence casing. Spoken punctuation words stay as words."
         case .professional:
             return "Formats spoken punctuation and bullet commands, tidies spacing, and capitalizes sentences. Preserves meaning without rewriting your speech."
+        case .code:
+            return "Technical formatting: converts spoken symbols (dash, underscore, slash, dot, equals), supports casing macros (camelCase, snake_case), and prevents unwanted capitalization or trailing periods."
         case .raw:
             return "The speech recognizer's original output, with no cleanup, formatting, or vocabulary replacements."
         }

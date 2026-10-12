@@ -115,6 +115,12 @@ public final class AppState: ObservableObject {
         }
     }
 
+    @Published public var autoAdaptiveFormatting: Bool = true {
+        didSet {
+            UserDefaults.standard.set(autoAdaptiveFormatting, forKey: "metatron_auto_adaptive")
+        }
+    }
+
     @Published public var isSoundEnabled: Bool = true {
         didSet {
             UserDefaults.standard.set(isSoundEnabled, forKey: "metatron_sound")
@@ -215,6 +221,12 @@ public final class AppState: ObservableObject {
             self.transcriptionStyle = style
         } else {
             self.transcriptionStyle = .professional
+        }
+
+        if UserDefaults.standard.object(forKey: "metatron_auto_adaptive") != nil {
+            self.autoAdaptiveFormatting = UserDefaults.standard.bool(forKey: "metatron_auto_adaptive")
+        } else {
+            self.autoAdaptiveFormatting = true
         }
 
         // Retire settings from older builds that offered cloud transcription.
@@ -383,6 +395,18 @@ public final class AppState: ObservableObject {
         TextCleaner.shared.customReplacements = TextCleaner.parseReplacements(from: textReplacementsText)
     }
 
+    public func resolveEffectiveStyle(baseStyle: TranscriptionStyle, target: InsertionTarget?) -> TranscriptionStyle {
+        guard autoAdaptiveFormatting, let target else { return baseStyle }
+        switch target.applicationCategory {
+        case .code:
+            return .code
+        case .chat:
+            return .natural
+        case .prose:
+            return baseStyle
+        }
+    }
+
     public static func isUndoCommand(_ text: String) -> Bool {
         return TextCleaner.isStandaloneUndoCommand(text)
     }
@@ -545,7 +569,8 @@ public final class AppState: ObservableObject {
         let target = insertionTarget
         let vocabulary = TextCleaner.shared.customVocabulary
         let replacements = TextCleaner.shared.customReplacements
-        let style = transcriptionStyle
+        let effectiveStyle = resolveEffectiveStyle(baseStyle: transcriptionStyle, target: target)
+        let isChat = target?.applicationCategory == .chat
         var contextText = target?.precedingText()
         if contextText == nil || contextText?.isEmpty == true {
             if let lastTime = self.lastInsertionTime,
@@ -593,7 +618,7 @@ public final class AppState: ObservableObject {
                 if let session {
                     rawText = try await session.finish()
                 } else {
-                    rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: style, context: contextText)
+                    rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: effectiveStyle, context: contextText)
                 }
                 NSLog("[Metatron Timing] recognition=%.3fs", ProcessInfo.processInfo.systemUptime - recognitionStartedAt)
                 try Task.checkCancellation()
@@ -605,14 +630,21 @@ public final class AppState: ObservableObject {
                 } else {
                     isContinuation = false
                 }
-                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary, replacements: replacements, isContinuation: isContinuation)
+                let cleanedText = TextCleaner.shared.clean(
+                    text: rawText,
+                    style: effectiveStyle,
+                    vocabulary: vocabulary,
+                    replacements: replacements,
+                    isContinuation: isContinuation,
+                    isChat: isChat
+                )
                 NSLog("[Metatron Timing] text_cleanup=%.3fs", ProcessInfo.processInfo.systemUptime - cleanupStartedAt)
 
                 // Standalone Voice Undo: "scratch that", "cancel that", "undo that"
                 if Self.isUndoCommand(cleanedText) {
                     let undone = HotkeyManager.isAccessibilityGranted() && target?.isCurrent == true
                         && TextInserter.shared.sendUndoKeystroke()
-                    self.statusMessage = undone ? "Undone!" : "Undo unavailable — use Edit → Undo"
+                    self.statusMessage = undone ? "Undone!" : "Undo unavailable: use Edit -> Undo"
                     self.showSuccess = undone
                     if undone { SoundEffects.shared.playSuccess() } else { SoundEffects.shared.playError() }
                     self.scheduleFeedbackReset(after: 1_800_000_000)
@@ -665,7 +697,7 @@ public final class AppState: ObservableObject {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(cleanedText, forType: .string)
                                 needsManualInsertion = true
-                                self.statusMessage = "Text ready — copied for manual paste"
+                                self.statusMessage = "Text ready: copied for manual paste"
                             }
                         } else {
                             HotkeyManager.requestAccessibilityPermission()
@@ -740,7 +772,7 @@ public final class AppState: ObservableObject {
 
         let vocabulary = TextCleaner.shared.customVocabulary
         let replacements = TextCleaner.shared.customReplacements
-        let style = transcriptionStyle
+        let effectiveStyle = resolveEffectiveStyle(baseStyle: transcriptionStyle, target: nil)
         let requestID = UUID()
         transcriptionID = requestID
         processingAudioURL = rescueURL
@@ -758,10 +790,10 @@ public final class AppState: ObservableObject {
             guard self.transcriptionID == requestID, !Task.isCancelled else { return }
 
             do {
-                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: rescueURL, vocabulary: vocabulary, style: style)
+                let rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: rescueURL, vocabulary: vocabulary, style: effectiveStyle)
                 try Task.checkCancellation()
                 guard self.transcriptionID == requestID else { return }
-                let cleanedText = TextCleaner.shared.clean(text: rawText, style: style, vocabulary: vocabulary, replacements: replacements)
+                let cleanedText = TextCleaner.shared.clean(text: rawText, style: effectiveStyle, vocabulary: vocabulary, replacements: replacements)
 
                 if !cleanedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     RescueAudioController.shared.markTranscriptionCompleted()
