@@ -4,7 +4,7 @@ import Combine
 /// Settings and meter state are separate from dictation's waveform callback.
 public final class MicrophoneController: ObservableObject {
     public static let shared = MicrophoneController()
-    private static let preferenceKey = "metatron_microphone_uid"
+    private static let preferenceKey = "presstowrite_microphone_uid"
 
     @Published public var selectedInputUID: String {
         didSet {
@@ -27,6 +27,7 @@ public final class MicrophoneController: ObservableObject {
     private var permissionRequestID: UUID?
 
     private init() {
+        PreferenceMigration.migrate()
         selectedInputUID = UserDefaults.standard.string(forKey: Self.preferenceKey) ?? ""
         refreshDevices()
     }

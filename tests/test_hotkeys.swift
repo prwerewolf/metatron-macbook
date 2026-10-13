@@ -125,6 +125,6 @@ struct HotkeyTests {
         manager.handleFlagsChanged(event: event(0, flags: []))
         expect(["up"], "FlagsChanged without right option mask must unlatch Option and trigger up")
 
-        print("All Metatron hotkey tests passed (\(checked) scenarios).")
+        print("All Press To Write hotkey tests passed (\(checked) scenarios).")
     }
 }

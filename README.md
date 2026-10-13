@@ -10,7 +10,7 @@ Requirements: an **Apple Silicon Mac (M-series), macOS 14 or later**, Xcode Comm
 
 1. Install Xcode Command Line Tools with `xcode-select --install` if needed.
 2. Install a supported arm64 Python if needed. Check `python3 --version`; a Python installed by a version manager also works. You can select its executable with the setup script's `--python` option.
-3. Download the repository's source ZIP from GitHub and extract it, or copy the repository's HTTPS clone URL into `git clone`. Open Terminal in the extracted or cloned folder.
+3. Download the `press-to-write` repository's source ZIP from GitHub and extract it, or copy the repository's HTTPS clone URL into `git clone`. Open Terminal in the extracted or cloned folder.
 4. Run:
 
 ```bash
@@ -113,7 +113,7 @@ Unix socket, so leave this unset for normal dictation.
 
 The daemon looks in the local Hugging Face cache for `mlx-community/whisper-large-v3-turbo`; an already-cached `mlx-community/whisper-base.en` can serve as a startup fallback. It reads cache directories directly and never calls an online model resolver. Standard `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE`, and `XDG_CACHE_HOME` cache locations are supported by both setup and the daemon. If using a custom cache or model path, launch the app’s executable from that same configured terminal; Finder does not necessarily inherit terminal environment variables.
 
-You can instead set `PRESSTOWRITE_MODEL_DIR` (or `METATRON_MODEL_DIR`) to an existing local model directory containing `config.json` and `weights.safetensors` or `weights.npz` when launching the app/daemon. Missing model files produce an unavailable message; they are never downloaded automatically. Python network sockets and DNS lookups are blocked in the daemon in addition to offline dependency flags.
+You can instead set `PRESSTOWRITE_MODEL_DIR` to an existing local model directory containing `config.json` and `weights.safetensors` or `weights.npz` when launching the app/daemon. Missing model files produce an unavailable message; they are never downloaded automatically. Python network sockets and DNS lookups are blocked in the daemon in addition to offline dependency flags.
 
 ## Build, test, and launch
 
@@ -135,10 +135,11 @@ make run    # Restart the app and local daemon
 
 Quit the app. For a clean clone tracking the official branch, run `git pull --ff-only`, then `make setup` and reopen it. Setup reuses an existing model and updates dependencies to the declared versions. If you downloaded a ZIP, download the newer official source instead and run setup from that folder. Settings and the local runtime live outside the source folder and remain on your Mac. Local signing can require granting Accessibility permission again after a rebuild.
 
-If a legacy Metatron app is still running, quit it and open the newly built
-**Press To Write.app**. An old Metatron shortcut continues to open that older
-bundle. In Writing settings, scroll below Voice Snippets to find Correction
-Learning. macOS permissions are granted separately to the updated application.
+Quit any older app copy and open the newly built **Press To Write.app**. Update
+existing shortcuts to open the current bundle. In Writing settings, scroll below
+Voice Snippets to find Correction Learning. macOS permissions are granted
+separately to the updated application. Existing settings are migrated to the
+current preference names on launch, preserving configured values.
 
 If an older clone predates a published history cleanup, download or clone the cleaned repository again. Do not merge or push its old branches into the official repository. See [Maintainer updates and privacy](MAINTAINING.md).
 

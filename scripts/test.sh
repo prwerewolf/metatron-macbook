@@ -4,7 +4,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
 
-TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/metatron-tests.XXXXXX")"
+TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/presstowrite-tests.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
 MODULE_CACHE="${CLANG_MODULE_CACHE_PATH:-$TEST_DIR/module-cache}"
 
@@ -55,6 +55,7 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
     Sources/PressToWrite/Core/AudioInputDevice.swift Sources/PressToWrite/Core/AudioInputDeviceController.swift \
+    Sources/PressToWrite/Core/PreferenceMigration.swift \
     Sources/PressToWrite/Core/AudioRecorder.swift tests/test_audio_conversion.swift \
     -o "$TEST_DIR/audio-conversion"
 "$TEST_DIR/audio-conversion"
@@ -66,10 +67,16 @@ swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
 
 swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library -D PRESSTOWRITE_TESTING \
     Sources/PressToWrite/Core/RescueAudioController.swift \
+    Sources/PressToWrite/Core/PreferenceMigration.swift \
     Sources/PressToWrite/Core/CorrectionLearner.swift \
     Sources/PressToWrite/App/AppState.swift Sources/PressToWrite/Engine/TextCleaner.swift \
     Sources/PressToWrite/Engine/SpeechEngine.swift tests/test_app_state.swift \
     -o "$TEST_DIR/app-state"
 PRESSTOWRITE_TEST_RESCUE_DIR="$TEST_DIR/rescue" "$TEST_DIR/app-state"
+
+swiftc -module-cache-path "$MODULE_CACHE" -parse-as-library \
+    Sources/PressToWrite/Core/PreferenceMigration.swift tests/test_preference_migration.swift \
+    -o "$TEST_DIR/preference-migration"
+"$TEST_DIR/preference-migration"
 
 python3 -B -m unittest discover -s tests -p 'test_*.py'

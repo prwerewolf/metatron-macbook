@@ -104,9 +104,9 @@ class OfflineModelTests(unittest.TestCase):
     def test_explicit_local_model_never_falls_back_to_repository_name(self):
         with tempfile.TemporaryDirectory() as temporary:
             model = self.make_model(Path(temporary) / "my-model")
-            with mock.patch.dict(os.environ, {"METATRON_MODEL_DIR": str(model)}):
+            with mock.patch.dict(os.environ, {"PRESSTOWRITE_MODEL_DIR": str(model)}):
                 self.assertEqual(daemon.local_model_candidates(), [("my-model", str(model.resolve()))])
-            with mock.patch.dict(os.environ, {"METATRON_MODEL_DIR": str(model / "missing")}):
+            with mock.patch.dict(os.environ, {"PRESSTOWRITE_MODEL_DIR": str(model / "missing")}):
                 with self.assertRaisesRegex(RuntimeError, "incomplete"):
                     daemon.local_model_candidates()
 
@@ -212,9 +212,9 @@ class EngineTests(unittest.TestCase):
         return result
 
     def test_vocabulary_is_sent_to_recognizer_as_initial_prompt(self):
-        result = self.transcribe("Metatron", [" Metatron ", "MLX", "metatron", "", "Sample\nUser"])
+        result = self.transcribe("Lumora", [" Lumora ", "MLX", "lumora", "", "Sample\nUser"])
         self.assertTrue(result["success"])
-        self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "Metatron, MLX, Sample User")
+        self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "Lumora, MLX, Sample User")
         self.assertEqual(self.engine.transcribe.call_args.kwargs["path_or_hf_repo"], "/local/model")
 
     def test_empty_vocabulary_does_not_add_a_prompt(self):
@@ -222,9 +222,9 @@ class EngineTests(unittest.TestCase):
         self.assertIsNone(self.engine.transcribe.call_args.kwargs["initial_prompt"])
 
     def test_context_and_vocabulary_combined_in_initial_prompt(self):
-        result = self.transcribe("Hello", ["Metatron", "Swift"], context="We are testing this with")
+        result = self.transcribe("Hello", ["Lumora", "Swift"], context="We are testing this with")
         self.assertTrue(result["success"])
-        self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "We are testing this with Metatron, Swift")
+        self.assertEqual(self.engine.transcribe.call_args.kwargs["initial_prompt"], "We are testing this with Lumora, Swift")
 
     def test_context_alone_used_as_initial_prompt(self):
         result = self.transcribe("Hello", [], context="Continuing this thought,")
@@ -484,24 +484,24 @@ class DaemonConnectionTests(unittest.TestCase):
         connection = self.make_connection(json.dumps({
             "action": "transcribe", "protocol_version": daemon.PROTOCOL_VERSION,
             "request_id": self.REQUEST_ID, "path": "/unused",
-            "vocabulary": ["Metatron"], "style": "raw",
+            "vocabulary": ["Lumora"], "style": "raw",
         }).encode() + b"\n")
         worker = mock.Mock()
-        worker.submit.return_value.result.return_value = {"text": " Metatron "}
+        worker.submit.return_value.result.return_value = {"text": " Lumora "}
         daemon.handle_connection(connection, worker)
-        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Metatron"], "raw", context=None)
-        self.assertEqual(json.loads(connection.sendall.call_args.args[0])["text"], " Metatron ")
+        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Lumora"], "raw", context=None)
+        self.assertEqual(json.loads(connection.sendall.call_args.args[0])["text"], " Lumora ")
 
     def test_transcription_forwards_context(self):
         connection = self.make_connection(json.dumps({
             "action": "transcribe", "protocol_version": daemon.PROTOCOL_VERSION,
             "request_id": self.REQUEST_ID, "path": "/unused",
-            "vocabulary": ["Metatron"], "style": "natural", "context": "Preceding text",
+            "vocabulary": ["Lumora"], "style": "natural", "context": "Preceding text",
         }).encode() + b"\n")
         worker = mock.Mock()
         worker.submit.return_value.result.return_value = {"text": " Result "}
         daemon.handle_connection(connection, worker)
-        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Metatron"], "natural", context="Preceding text")
+        worker.submit.assert_called_once_with(self.REQUEST_ID, "/unused", ["Lumora"], "natural", context="Preceding text")
         self.assertEqual(json.loads(connection.sendall.call_args.args[0])["text"], " Result ")
 
     def test_cancel_never_queues_behind_inference(self):

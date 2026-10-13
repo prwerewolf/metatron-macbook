@@ -75,7 +75,7 @@ def complete_model_folder(folder):
 
 def local_model_candidates():
     """Find downloaded files directly; never invoke a Hub resolver or downloader."""
-    explicit_path = os.environ.get("PRESSTOWRITE_MODEL_DIR") or os.environ.get("METATRON_MODEL_DIR")
+    explicit_path = os.environ.get("PRESSTOWRITE_MODEL_DIR")
     if explicit_path:
         folder = Path(explicit_path).expanduser().resolve()
         if not complete_model_folder(folder):
@@ -175,7 +175,7 @@ def load_engine_background():
                         active_model_path = model_path
                         is_engine_ready = True
                         engine_message = "Ready — speech stays on this Mac"
-                    print(f"[Metatron Daemon] Local model loaded and warmed: {model}")
+                    print(f"[Press To Write Daemon] Local model loaded and warmed: {model}")
                     return
                 except Exception as error:
                     failures.append(f"{model}: {error}")
@@ -183,7 +183,7 @@ def load_engine_background():
     except Exception as error:
         with engine_lock:
             engine_load_error = str(error)
-        print(f"[Metatron Daemon] Local model unavailable: {error}", file=sys.stderr)
+        print(f"[Press To Write Daemon] Local model unavailable: {error}", file=sys.stderr)
 
 
 def deduplicate_repetition_loops(text: str) -> str:
@@ -329,7 +329,7 @@ def is_vocabulary_echo(text, terms):
 
 
 def load_recorded_audio(audio_path):
-    """Decode Metatron's 16 kHz mono PCM16 WAV without invoking ffmpeg."""
+    """Decode Press To Write's 16 kHz mono PCM16 WAV without invoking ffmpeg."""
     with wave.open(audio_path, "rb") as recording:
         if (recording.getnchannels() != 1 or recording.getframerate() != 16000
                 or recording.getsampwidth() != 2 or recording.getcomptype() != "NONE"):
@@ -433,7 +433,7 @@ class IsolatedInferenceWorker:
         self.lock = threading.Lock()
         self.stopping = threading.Event()
         self.process = None
-        self.thread = threading.Thread(target=self._run, name="metatron-inference-supervisor", daemon=True)
+        self.thread = threading.Thread(target=self._run, name="presstowrite-inference-supervisor", daemon=True)
         self.thread.start()
 
     def submit(self, request_id, path, vocabulary, style, context=None):
@@ -681,7 +681,7 @@ def handle_connection(conn, worker, fast_worker=None):
 
 
 def start_parent_watchdog():
-    parent_pid_str = os.environ.get("PRESSTOWRITE_PARENT_PID") or os.environ.get("METATRON_PARENT_PID")
+    parent_pid_str = os.environ.get("PRESSTOWRITE_PARENT_PID")
     if not parent_pid_str:
         return
     try:

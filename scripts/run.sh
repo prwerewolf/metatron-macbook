@@ -9,7 +9,6 @@ cd "$DIR"
 APP_NAME="Press To Write"
 APP_EXECUTABLE="$DIR/$APP_NAME.app/Contents/MacOS/PressToWrite"
 pkill -f "$APP_EXECUTABLE" 2>/dev/null || true
-pkill -f "$DIR/Metatron.app/Contents/MacOS/Metatron" 2>/dev/null || true
 for _ in {1..50}; do
     if ! pgrep -f "$APP_EXECUTABLE" >/dev/null 2>&1; then
         break

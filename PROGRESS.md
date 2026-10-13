@@ -6,6 +6,23 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 ### Recently Completed & Verified
 
+**Press To Write naming cleanup (October 13, 2026; verified locally):**
+
+- Current app, runtime, and documentation names use **Press To Write**, with
+  `presstowrite` identifiers and `PRESSTOWRITE_` environment variables. Runtime
+  discovery uses the current Application Support directory. The neutral `.venv`
+  fallback remains available for an existing local installation.
+- Preferences move to current names while preserving configured values,
+  microphone selection, and pill placement through a one-time migration.
+- The GitHub repository and local checkout are named `press-to-write`; the
+  local remote points to the renamed repository. Existing branch protections
+  still require Privacy checks and macOS regression tests.
+- All twelve Swift regression suites and all 84 Python tests passed. The release
+  app built from the renamed checkout and signed with the persistent development
+  identity; bundle verification and source privacy checks passed. Independent
+  review found no actionable issues. Publication follows the required
+  current-head CI and neutral-identity route in MAINTAINING.md.
+
 **Correction-learning regression timing (October 12, 2026; verified locally):**
 
 - The asynchronous regression waits for the initial paste to be observed before
@@ -107,7 +124,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 - The release bundle uses ad-hoc local signing; macOS may require granting
   Accessibility again. Reopen the rebuilt app to load this update. Learning is
   off by default; enable Suggest spelling corrections below Voice Snippets in
-  Settings → Writing. A legacy Metatron settings window belongs to the older app;
+  Settings → Writing. An older settings window belongs to the older app;
   use the rebuilt Press To Write app to access the new controls.
 - Release through a reviewed branch with the required current-head privacy and
   macOS checks, then the neutral-identity fast-forward route in MAINTAINING.md.
@@ -139,7 +156,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 1. **Launch at Login (`SMAppService`)**:
    - Native macOS 13+ ServiceManagement integration via `LaunchAtLogin.swift`.
-   - General Settings toggle seamlessly registers/unregisters `Metatron.app` in macOS Login Items.
+   - General Settings toggle seamlessly registers/unregisters `Press To Write.app` in macOS Login Items.
 
 2. **Custom Text Replacements / Voice Snippet Macros**:
    - Expansion engine in `TextCleaner.swift` supporting `phrase -> replacement` or `phrase = replacement`.
@@ -165,7 +182,7 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 
 7. **Speech Transcription Without `ffmpeg`**:
    - Fixed Fn dictation failing after release when the GUI-launched daemon could not find Homebrew's `ffmpeg`.
-   - The daemon validates and decodes Metatron's 16 kHz mono PCM16 WAV using Python `wave` and NumPy, then passes float32 samples to MLX Whisper.
+   - The daemon validates and decodes Press To Write's 16 kHz mono PCM16 WAV using Python `wave` and NumPy, then passes float32 samples to MLX Whisper.
    - Added a regression test for sample scaling, array input to MLX, and temporary recording cleanup.
 
 8. **Comprehensive Codebase Hardening & Bug Fixes**:
@@ -185,28 +202,28 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
    - `startRecording()` and `onRecordingError` explicitly call `resetModifierStates()` to guarantee modifier flags can never stay latched after an error.
 
 11. **Persistent Audio Rescue System & Menu Bar Recovery (`RescueAudioController.swift`)**:
-   - Raw recorded audio is persisted to `~/Library/Application Support/Metatron/last_recording.wav` with a JSON metadata manifest.
+   - Raw recorded audio is persisted to `~/Library/Application Support/Press To Write/last_recording.wav` with a JSON metadata manifest.
    - Speech audio is never discarded on device errors or transcription timeouts.
    - Added **"Transcribe Last Recording"** menu bar status item with duration readout (`AppDelegate.swift`), enabling instant one-click recovery to the clipboard at any time.
 
 12. **Zero-Orphan Process Watchdog (`whisper_daemon.py` & `LocalDaemonClient.swift`)**:
-   - `METATRON_PARENT_PID` environment propagation to spawned daemons.
+   - `PRESSTOWRITE_PARENT_PID` environment propagation to spawned daemons.
    - Background POSIX watchdog thread in Python terminates the daemon within 1 second if the parent app exits or is force-quit.
    - Explicit `terminateLaunchedDaemon()` hook in `AppDelegate.applicationWillTerminate`.
 
 13. **macOS TCC Sandbox Immunity via Application Support Runtime**:
    - Resolved GUI-launch access failures when a checkout under `~/Documents` was used as the speech runtime.
-   - Current setup creates the runtime directly at `~/Library/Application Support/Press To Write/venv`. It does not copy or relocate an existing virtual environment. Legacy runtime paths remain fallback candidates for older installations.
+   - Current setup creates the runtime directly at `~/Library/Application Support/Press To Write/venv`. It does not copy or relocate an existing virtual environment. An existing checkout `.venv` remains a fallback for older installations.
    - Updated `LocalDaemonClient.swift` to automatically sync `whisper_daemon.py` to Application Support and prioritize the Application Support Python environment in `candidatePythonPaths`.
    - Setup maintains dependencies in Application Support; building only packages the daemon in the app. The app stages its bundled daemon when launched, leaving user preferences and recovery recordings outside the source checkout.
    - Added `NSDocumentsFolderUsageDescription` in `Resources/Info.plist` for defense-in-depth.
 
 14. **Full Rebrand to Press To Write (`Press To Write.app`)**:
-   - Rebranded the entire application from Metatron to **Press To Write** across native Swift sources, app bundle (`Press To Write.app`), bundle identifier (`com.presstowrite.mac`), Swift package target (`PressToWrite`), and local codesigning identity (`Press To Write Development`).
-   - Cleaned up legacy prototype processes (`PushTalk`), reset TCC permissions for `com.presstowrite.mac`, and unhooked legacy Fn key interceptors.
+   - Standardized **Press To Write** across native Swift sources, app bundle (`Press To Write.app`), bundle identifier (`com.presstowrite.mac`), Swift package target (`PressToWrite`), and local codesigning identity (`Press To Write Development`).
+   - Cleaned up legacy prototype processes, reset TCC permissions for `com.presstowrite.mac`, and unhooked legacy Fn key interceptors.
    - Updated all user-facing UI: Menu Bar ("Press To Write"), Floating Pill ("Press To Write", adjusted horizontal pill width to 126pt), Settings, History, and Permissions windows.
    - Modernized offline model downloader in `scripts/setup_mac.sh` to use `huggingface_hub.snapshot_download` instead of deprecated `huggingface_hub.cli.core`.
-   - Updated local IPC socket path to `/tmp/presstowrite.sock` with dual environment variable support (`PRESSTOWRITE_MODEL_DIR` / `METATRON_MODEL_DIR`, `PRESSTOWRITE_PYTHON` / `METATRON_PYTHON`).
+   - Updated local IPC socket path to `/tmp/presstowrite.sock`; current environment overrides use `PRESSTOWRITE_MODEL_DIR` and `PRESSTOWRITE_PYTHON`.
    - Re-verified full test suite and clean release build.
 
 15. **Context-Aware Prompt Biasing, Hallucination Guard & Output Formatting (October 9, 2026)**:
@@ -263,4 +280,4 @@ Press To Write is a local-first push-to-talk speech dictation app for Apple Sili
 - **Audio Rescue Invariant**: Speech audio is saved to `RescueAudioController` whenever recording finishes or encounters an error after >= 1.0s of speech. The temporary file in `/tmp` is removed to prevent disk leaks while preserving user voice data in Application Support.
 - **Standalone Undo vs. Mid-Utterance**: `TextCleaner.isStandaloneUndoCommand` preserves bare undo commands so `AppState` can inspect them before text insertion and trigger `Cmd+Z`. Mid-utterance commands are handled separately in `cleanScratchThatPhrases`.
 - **Accessibility Permissions**: Virtual keystroke insertion (`Cmd+V`, `Cmd+Z`) and focused element inspection require macOS Accessibility permissions. If ungranted, clipboard fallback is used.
-- **GUI Process `PATH`**: Apps launched by Finder may not inherit Homebrew paths. Pass decoded NumPy audio to MLX Whisper, rather than a WAV filename that would make the dependency call `ffmpeg`. Metatron's PCM16 WAV format is validated before inference.
+- **GUI Process `PATH`**: Apps launched by Finder may not inherit Homebrew paths. Pass decoded NumPy audio to MLX Whisper, rather than a WAV filename that would make the dependency call `ffmpeg`. Press To Write's PCM16 WAV format is validated before inference.

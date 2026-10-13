@@ -82,7 +82,7 @@ public final class AudioRecorder: NSObject {
                 return url
             } catch {
                 lastError = error
-                NSLog("[Metatron] Audio capture candidate %@ failed: %@", candidate?.name ?? "AUHAL default", error.localizedDescription)
+                NSLog("[Press To Write] Audio capture candidate %@ failed: %@", candidate?.name ?? "AUHAL default", error.localizedDescription)
                 continue
             }
         }
@@ -93,7 +93,7 @@ public final class AudioRecorder: NSObject {
     private func attemptStartCapture(device: AudioInputDevice?, onPCM16: ((Data) -> Void)?) throws -> URL {
         let (engine, resolvedDevice, inputFormat) = try makeInputEngine(device: device)
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("metatron_\(UUID().uuidString).wav")
+            .appendingPathComponent("presstowrite_\(UUID().uuidString).wav")
         let token = UUID()
         let gate = CaptureGate()
         var tapInstalled = false

@@ -43,7 +43,7 @@ struct LocalDaemonClientTests {
         }
 
         let lockPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("metatron-lock-test-\(UUID().uuidString)").path
+            .appendingPathComponent("presstowrite-lock-test-\(UUID().uuidString)").path
         let lockFD = open(lockPath, O_RDWR | O_CREAT, mode_t(0o600))
         precondition(lockFD >= 0)
         defer {

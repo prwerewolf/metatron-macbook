@@ -29,10 +29,10 @@ public enum PillSnapTarget: String, CaseIterable, Identifiable {
 }
 
 public final class FloatingPillPanel: NSPanel {
-    private let userDefaultsKeyX = "metatron_pill_x"
-    private let userDefaultsKeyY = "metatron_pill_y"
-    private let userDefaultsKeySnap = "metatron_pill_snap"
-    private let userDefaultsKeyDisplay = "metatron_pill_display"
+    private let userDefaultsKeyX = "presstowrite_pill_x"
+    private let userDefaultsKeyY = "presstowrite_pill_y"
+    private let userDefaultsKeySnap = "presstowrite_pill_snap"
+    private let userDefaultsKeyDisplay = "presstowrite_pill_display"
 
     // Ultra-compact, sleek dimensions — minimal footprint, zero dots
     public static let horizontalSize = NSSize(width: 126, height: 30)
@@ -44,6 +44,7 @@ public final class FloatingPillPanel: NSPanel {
     private var screenParametersObserver: NSObjectProtocol?
 
     public init() {
+        PreferenceMigration.migrate()
         let isVert = AppState.shared.pillOrientation == .vertical
         let initSize = isVert ? FloatingPillPanel.verticalSize : FloatingPillPanel.horizontalSize
 

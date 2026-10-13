@@ -49,14 +49,14 @@ public final class AppState: ObservableObject {
     @Published public var history: [DictationItem] = []
     @Published public var historyRetention: HistoryRetention = .clearOnQuit {
         didSet {
-            UserDefaults.standard.set(historyRetention.rawValue, forKey: "metatron_retention")
+            UserDefaults.standard.set(historyRetention.rawValue, forKey: "presstowrite_retention")
             applyRetentionPolicy()
         }
     }
 
     @Published public var correctionLearningEnabled: Bool = false {
         didSet {
-            UserDefaults.standard.set(correctionLearningEnabled, forKey: "metatron_correction_learning")
+            UserDefaults.standard.set(correctionLearningEnabled, forKey: "presstowrite_correction_learning")
             if !correctionLearningEnabled { stopCorrectionLearning() }
         }
     }
@@ -69,27 +69,27 @@ public final class AppState: ObservableObject {
     // MARK: - Privacy & Clipboard Controls
     @Published public var autoCopyToClipboard: Bool = false {
         didSet {
-            UserDefaults.standard.set(autoCopyToClipboard, forKey: "metatron_auto_copy")
+            UserDefaults.standard.set(autoCopyToClipboard, forKey: "presstowrite_auto_copy")
         }
     }
 
     @Published public var autoInsertText: Bool = true {
         didSet {
-            UserDefaults.standard.set(autoInsertText, forKey: "metatron_auto_insert")
+            UserDefaults.standard.set(autoInsertText, forKey: "presstowrite_auto_insert")
         }
     }
 
     // MARK: - Floating Pill State
     @Published public var pillOrientation: PillOrientation = .horizontal {
         didSet {
-            UserDefaults.standard.set(pillOrientation.rawValue, forKey: "metatron_pill_orientation")
+            UserDefaults.standard.set(pillOrientation.rawValue, forKey: "presstowrite_pill_orientation")
         }
     }
 
     // MARK: - Settings
     @Published public var speechMode: SpeechMode = .accuracy {
         didSet {
-            UserDefaults.standard.set(speechMode.rawValue, forKey: "metatron_speech_mode")
+            UserDefaults.standard.set(speechMode.rawValue, forKey: "presstowrite_speech_mode")
             engineStatus = LocalEngineStatus(phase: .loading, message: "Loading \(speechMode.title)…")
             Task { await self.refreshEngineStatus() }
         }
@@ -97,47 +97,47 @@ public final class AppState: ObservableObject {
 
     @Published public var hotkeyChoice: HotkeyChoice = .fnHold {
         didSet {
-            UserDefaults.standard.set(hotkeyChoice.rawValue, forKey: "metatron_hotkey")
+            UserDefaults.standard.set(hotkeyChoice.rawValue, forKey: "presstowrite_hotkey")
             HotkeyManager.shared.activeHotkey = hotkeyChoice
         }
     }
 
     @Published public var dictationMode: DictationMode = .pushToTalk {
         didSet {
-            UserDefaults.standard.set(dictationMode.rawValue, forKey: "metatron_mode")
+            UserDefaults.standard.set(dictationMode.rawValue, forKey: "presstowrite_mode")
             HotkeyManager.shared.activeMode = dictationMode
         }
     }
 
     @Published public var transcriptionStyle: TranscriptionStyle = .professional {
         didSet {
-            UserDefaults.standard.set(transcriptionStyle.rawValue, forKey: "metatron_style")
+            UserDefaults.standard.set(transcriptionStyle.rawValue, forKey: "presstowrite_style")
         }
     }
 
     @Published public var autoAdaptiveFormatting: Bool = true {
         didSet {
-            UserDefaults.standard.set(autoAdaptiveFormatting, forKey: "metatron_auto_adaptive")
+            UserDefaults.standard.set(autoAdaptiveFormatting, forKey: "presstowrite_auto_adaptive")
         }
     }
 
     @Published public var isSoundEnabled: Bool = true {
         didSet {
-            UserDefaults.standard.set(isSoundEnabled, forKey: "metatron_sound")
+            UserDefaults.standard.set(isSoundEnabled, forKey: "presstowrite_sound")
             SoundEffects.shared.isSoundEnabled = isSoundEnabled
         }
     }
 
     @Published public var customVocabularyText: String = "" {
         didSet {
-            UserDefaults.standard.set(customVocabularyText, forKey: "metatron_vocab")
+            UserDefaults.standard.set(customVocabularyText, forKey: "presstowrite_vocab")
             updateCustomVocabulary()
         }
     }
 
     @Published public var textReplacementsText: String = "" {
         didSet {
-            UserDefaults.standard.set(textReplacementsText, forKey: "metatron_replacements")
+            UserDefaults.standard.set(textReplacementsText, forKey: "presstowrite_replacements")
             updateTextReplacements()
         }
     }
@@ -175,74 +175,70 @@ public final class AppState: ObservableObject {
         if RescueAudioController.shared.hasRescueAudio,
            let meta = RescueAudioController.shared.pendingMetadata,
            meta.status == "pending" || meta.status == "failed" {
-            NSLog("[Metatron] Found untranscribed rescue audio (%.2fs, status=%@)", meta.duration, meta.status)
+            NSLog("[Press To Write] Found untranscribed rescue audio (%.2fs, status=%@)", meta.duration, meta.status)
         }
     }
 
     private func loadSettings() {
-        if let saved = UserDefaults.standard.string(forKey: "metatron_speech_mode"),
+        PreferenceMigration.migrate()
+        if let saved = UserDefaults.standard.string(forKey: "presstowrite_speech_mode"),
            let mode = SpeechMode(rawValue: saved) {
             speechMode = mode
         }
-        if let rawRetention = UserDefaults.standard.string(forKey: "metatron_retention"),
+        if let rawRetention = UserDefaults.standard.string(forKey: "presstowrite_retention"),
            let retention = HistoryRetention(rawValue: rawRetention) {
             self.historyRetention = retention
         }
 
-        if UserDefaults.standard.object(forKey: "metatron_auto_copy") != nil {
-            self.autoCopyToClipboard = UserDefaults.standard.bool(forKey: "metatron_auto_copy")
+        if UserDefaults.standard.object(forKey: "presstowrite_auto_copy") != nil {
+            self.autoCopyToClipboard = UserDefaults.standard.bool(forKey: "presstowrite_auto_copy")
         } else {
             self.autoCopyToClipboard = false // Default to false for privacy
         }
 
-        if UserDefaults.standard.object(forKey: "metatron_auto_insert") != nil {
-            self.autoInsertText = UserDefaults.standard.bool(forKey: "metatron_auto_insert")
+        if UserDefaults.standard.object(forKey: "presstowrite_auto_insert") != nil {
+            self.autoInsertText = UserDefaults.standard.bool(forKey: "presstowrite_auto_insert")
         } else {
             self.autoInsertText = true
         }
 
-        if let rawOrientation = UserDefaults.standard.string(forKey: "metatron_pill_orientation"),
+        if let rawOrientation = UserDefaults.standard.string(forKey: "presstowrite_pill_orientation"),
            let orientation = PillOrientation(rawValue: rawOrientation) {
             self.pillOrientation = orientation
         }
 
-        if let rawHotkey = UserDefaults.standard.string(forKey: "metatron_hotkey"),
+        if let rawHotkey = UserDefaults.standard.string(forKey: "presstowrite_hotkey"),
            let hotkey = HotkeyChoice(rawValue: rawHotkey) {
             self.hotkeyChoice = hotkey
         }
 
-        if let rawMode = UserDefaults.standard.string(forKey: "metatron_mode"),
+        if let rawMode = UserDefaults.standard.string(forKey: "presstowrite_mode"),
            let mode = DictationMode(rawValue: rawMode) {
             self.dictationMode = mode
         }
 
-        if let rawStyle = UserDefaults.standard.string(forKey: "metatron_style"),
+        if let rawStyle = UserDefaults.standard.string(forKey: "presstowrite_style"),
            let style = TranscriptionStyle(rawValue: rawStyle) {
             self.transcriptionStyle = style
         } else {
             self.transcriptionStyle = .professional
         }
 
-        if UserDefaults.standard.object(forKey: "metatron_auto_adaptive") != nil {
-            self.autoAdaptiveFormatting = UserDefaults.standard.bool(forKey: "metatron_auto_adaptive")
+        if UserDefaults.standard.object(forKey: "presstowrite_auto_adaptive") != nil {
+            self.autoAdaptiveFormatting = UserDefaults.standard.bool(forKey: "presstowrite_auto_adaptive")
         } else {
             self.autoAdaptiveFormatting = true
         }
 
-        // Retire settings from older builds that offered cloud transcription.
-        for key in ["metatron_engine", "metatron_groq_key", "metatron_openai_key"] {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-
-        if UserDefaults.standard.object(forKey: "metatron_sound") != nil {
-            self.isSoundEnabled = UserDefaults.standard.bool(forKey: "metatron_sound")
+        if UserDefaults.standard.object(forKey: "presstowrite_sound") != nil {
+            self.isSoundEnabled = UserDefaults.standard.bool(forKey: "presstowrite_sound")
         }
 
         self.launchAtLogin = LaunchAtLogin.isEnabled
-        self.customVocabularyText = UserDefaults.standard.string(forKey: "metatron_vocab") ?? ""
-        self.textReplacementsText = UserDefaults.standard.string(forKey: "metatron_replacements") ?? ""
-        self.correctionLearningEnabled = UserDefaults.standard.bool(forKey: "metatron_correction_learning")
-        let savedWords = UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] ?? []
+        self.customVocabularyText = UserDefaults.standard.string(forKey: "presstowrite_vocab") ?? ""
+        self.textReplacementsText = UserDefaults.standard.string(forKey: "presstowrite_replacements") ?? ""
+        self.correctionLearningEnabled = UserDefaults.standard.bool(forKey: "presstowrite_correction_learning")
+        let savedWords = UserDefaults.standard.object(forKey: "presstowrite_learned_vocabulary") as? [String] ?? []
         var seenWords = Set<String>()
         self.learnedVocabulary = savedWords.compactMap(Self.validLearnedWord)
             .filter { seenWords.insert($0.lowercased()).inserted }.prefix(256).map { $0 }
@@ -261,7 +257,7 @@ public final class AppState: ObservableObject {
             let duration = Date().timeIntervalSince(self.recordingStartTime ?? Date())
             let capturedURL = url ?? self.activeAudioURL
             if let capturedURL, FileManager.default.fileExists(atPath: capturedURL.path), duration >= 1.0 {
-                NSLog("[Metatron Rescue] Microphone error after %.2fs of speech: rescuing audio", duration)
+                NSLog("[Press To Write Rescue] Microphone error after %.2fs of speech: rescuing audio", duration)
                 RescueAudioController.shared.saveRescueAudio(from: capturedURL, duration: duration)
                 RescueAudioController.shared.markTranscriptionFailed(error: error.localizedDescription)
             }
@@ -387,7 +383,7 @@ public final class AppState: ObservableObject {
     }
 
     private func saveLearnedVocabulary() {
-        UserDefaults.standard.set(learnedVocabulary, forKey: "metatron_learned_vocabulary")
+        UserDefaults.standard.set(learnedVocabulary, forKey: "presstowrite_learned_vocabulary")
         updateCustomVocabulary()
     }
 
@@ -501,7 +497,7 @@ public final class AppState: ObservableObject {
         do {
             let captureStartedAt = ProcessInfo.processInfo.systemUptime
             let target = InsertionTarget.capture()
-            NSLog("[Metatron Timing] capture_focus=%.3fs", ProcessInfo.processInfo.systemUptime - captureStartedAt)
+            NSLog("[Press To Write Timing] capture_focus=%.3fs", ProcessInfo.processInfo.systemUptime - captureStartedAt)
             let audioStartedAt = ProcessInfo.processInfo.systemUptime
             let session = speechMode == .fast
                 ? LocalDaemonClient.shared.startStreaming(vocabulary: TextCleaner.shared.customVocabulary) : nil
@@ -509,7 +505,7 @@ public final class AppState: ObservableObject {
             let url = try AudioRecorder.shared.startRecording(onPCM16: session.map { session in
                 { pcm in session.appendPCM16(pcm) }
             })
-            NSLog("[Metatron Timing] start_audio=%.3fs", ProcessInfo.processInfo.systemUptime - audioStartedAt)
+            NSLog("[Press To Write Timing] start_audio=%.3fs", ProcessInfo.processInfo.systemUptime - audioStartedAt)
             self.insertionTarget = target
             self.activeAudioURL = url
             self.isRecording = true
@@ -517,7 +513,7 @@ public final class AppState: ObservableObject {
             self.statusMessage = "Listening..."
             SoundEffects.shared.playStart()
         } catch {
-            NSLog("[Metatron] Failed to start audio recording: \(error)")
+            NSLog("[Press To Write] Failed to start audio recording: \(error)")
             streamingSession?.cancel()
             streamingSession = nil
             self.statusMessage = error.localizedDescription
@@ -560,7 +556,7 @@ public final class AppState: ObservableObject {
         SoundEffects.shared.playStop()
 
         let audioURL = AudioRecorder.shared.stopRecording() ?? activeAudioURL
-        NSLog("[Metatron Timing] stop_audio=%.3fs", ProcessInfo.processInfo.systemUptime - pipelineStartedAt)
+        NSLog("[Press To Write Timing] stop_audio=%.3fs", ProcessInfo.processInfo.systemUptime - pipelineStartedAt)
         let session = streamingSession
         streamingSession = nil
         if let audioURL, FileManager.default.fileExists(atPath: audioURL.path) {
@@ -592,7 +588,7 @@ public final class AppState: ObservableObject {
         transcriptionTask = Task {
             defer {
                 session?.cancel()
-                NSLog("[Metatron Timing] release_to_completion=%.3fs cancelled=%d", ProcessInfo.processInfo.systemUptime - pipelineStartedAt, Task.isCancelled ? 1 : 0)
+                NSLog("[Press To Write Timing] release_to_completion=%.3fs cancelled=%d", ProcessInfo.processInfo.systemUptime - pipelineStartedAt, Task.isCancelled ? 1 : 0)
                 // Release the recording as soon as processing finishes, independently of feedback.
                 if let url = audioURL, FileManager.default.fileExists(atPath: url.path) {
                     try? FileManager.default.removeItem(at: url)
@@ -620,7 +616,7 @@ public final class AppState: ObservableObject {
                 } else {
                     rawText = try await LocalDaemonClient.shared.transcribe(audioFileURL: url, vocabulary: vocabulary, style: effectiveStyle, context: contextText)
                 }
-                NSLog("[Metatron Timing] recognition=%.3fs", ProcessInfo.processInfo.systemUptime - recognitionStartedAt)
+                NSLog("[Press To Write Timing] recognition=%.3fs", ProcessInfo.processInfo.systemUptime - recognitionStartedAt)
                 try Task.checkCancellation()
                 guard self.transcriptionID == requestID else { return }
                 let cleanupStartedAt = ProcessInfo.processInfo.systemUptime
@@ -638,7 +634,7 @@ public final class AppState: ObservableObject {
                     isContinuation: isContinuation,
                     isChat: isChat
                 )
-                NSLog("[Metatron Timing] text_cleanup=%.3fs", ProcessInfo.processInfo.systemUptime - cleanupStartedAt)
+                NSLog("[Press To Write Timing] text_cleanup=%.3fs", ProcessInfo.processInfo.systemUptime - cleanupStartedAt)
 
                 // Standalone Voice Undo: "scratch that", "cancel that", "undo that"
                 if Self.isUndoCommand(cleanedText) {
@@ -742,7 +738,7 @@ public final class AppState: ObservableObject {
                 // A canceled request must never insert text or overwrite a newer recording.
             } catch {
                 guard self.transcriptionID == requestID, !Task.isCancelled else { return }
-                NSLog("[Metatron] Transcription error: \(error)")
+                NSLog("[Press To Write] Transcription error: \(error)")
                 RescueAudioController.shared.markTranscriptionFailed(error: error.localizedDescription)
                 let msg = error.localizedDescription
                 self.statusMessage = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg
@@ -816,7 +812,7 @@ public final class AppState: ObservableObject {
             } catch is CancellationError {
             } catch {
                 guard self.transcriptionID == requestID, !Task.isCancelled else { return }
-                NSLog("[Metatron] Rescue transcription error: \(error)")
+                NSLog("[Press To Write] Rescue transcription error: \(error)")
                 RescueAudioController.shared.markTranscriptionFailed(error: error.localizedDescription)
                 let msg = error.localizedDescription
                 self.statusMessage = msg.count > 40 ? String(msg.prefix(37)) + "..." : msg

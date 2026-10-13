@@ -25,11 +25,10 @@ install-hooks:
 
 stop:
 	@pkill -f "Press To Write.app/Contents/MacOS/PressToWrite" 2>/dev/null || true
-	@pkill -f "Metatron.app/Contents/MacOS/Metatron" 2>/dev/null || true
 	@pkill -f "whisper_daemon.py" 2>/dev/null || true
-	@rm -f /tmp/presstowrite.sock /tmp/metatron.sock 2>/dev/null || true
+	@rm -f /tmp/presstowrite.sock 2>/dev/null || true
 	@echo "Press To Write stopped."
 
 clean: stop
-	@rm -rf .build "Press To Write.app" Metatron.app /tmp/presstowrite* /tmp/metatron*
+	@rm -rf .build "Press To Write.app" /tmp/presstowrite*
 	@echo "Cleaned."

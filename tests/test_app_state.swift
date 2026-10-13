@@ -1,14 +1,11 @@
 import Foundation
 
-// Compile with AppState, SpeechEngine, and TextCleaner. These doubles keep tests
-// away from the microphone, system preferences, clipboard, and running daemon.
+// Compile with AppState, PreferenceMigration, SpeechEngine, and TextCleaner.
+// These doubles keep tests away from the microphone, system preferences,
+// clipboard, and running daemon.
 public final class UserDefaults {
     public static let standard = UserDefaults()
-    private var values: [String: Any] = [
-        "metatron_engine": "OpenAI Cloud (Whisper API)",
-        "metatron_groq_key": "test-only",
-        "metatron_openai_key": "test-only"
-    ]
+    private var values: [String: Any] = [:]
     public func set(_ value: Any?, forKey key: String) { values[key] = value }
     public func removeObject(forKey key: String) { values.removeValue(forKey: key) }
     public func string(forKey key: String) -> String? { values[key] as? String }
@@ -51,7 +48,7 @@ public final class AudioRecorder {
     public func startRecording(onPCM16: ((Data) -> Void)? = nil) throws -> URL {
         pcmCallback = onPCM16
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("metatron-state-test-\(UUID().uuidString)")
+            .appendingPathComponent("presstowrite-state-test-\(UUID().uuidString)")
         try Data([0]).write(to: url)
         recordings.append(url)
         return url
@@ -213,9 +210,13 @@ struct AppStateTests {
         defer {
             for url in recorder.recordings { try? FileManager.default.removeItem(at: url) }
         }
-        for key in ["metatron_engine", "metatron_groq_key", "metatron_openai_key"] {
-            precondition(UserDefaults.standard.object(forKey: key) == nil, "Legacy cloud settings must be retired")
-        }
+        precondition(state.historyRetention == .clearOnQuit)
+        precondition(!state.autoCopyToClipboard && state.autoInsertText)
+        precondition(state.pillOrientation == .horizontal)
+        precondition(state.transcriptionStyle == .professional)
+        precondition(state.autoAdaptiveFormatting && state.isSoundEnabled)
+        precondition(!state.correctionLearningEnabled && state.learnedVocabulary.isEmpty)
+        precondition(state.customVocabularyText.isEmpty && state.textReplacementsText.isEmpty)
 
         state.minRecordingDuration = 0
         state.autoInsertText = false
@@ -355,16 +356,16 @@ struct AppStateTests {
 
         // Vocabulary and style are captured per utterance, including unchanged Raw output.
         state.autoInsertText = false
-        state.customVocabularyText = "Sample User, Metatron"
+        state.customVocabularyText = "Sample User, Asteria"
         state.transcriptionStyle = .raw
-        engine.result = .success("  um, metatron period  ")
+        engine.result = .success("  um, asteria period  ")
         state.startRecording()
         state.stopRecordingAndTranscribe()
         state.transcriptionStyle = .professional
         try await waitUntil { !state.isProcessing }
-        precondition(engine.requests.last!.vocabulary == ["Sample User", "Metatron"])
+        precondition(engine.requests.last!.vocabulary == ["Sample User", "Asteria"])
         precondition(engine.requests.last!.style == .raw)
-        precondition(state.lastTranscribedText == "  um, metatron period  ")
+        precondition(state.lastTranscribedText == "  um, asteria period  ")
 
         // Purge must also remove the copyable last result and pending insertion.
         precondition(!state.history.isEmpty)
@@ -529,11 +530,11 @@ struct AppStateTests {
         InsertionTarget.mockSnapshot = CorrectionFieldSnapshot(text: "Send this to Lumora.", selection: NSRange(location: 20, length: 0))
         try await waitUntil { !state.correctionSuggestions.isEmpty }
         precondition(state.learnedVocabulary.isEmpty, "Suggestions must never save themselves")
-        precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") == nil)
+        precondition(UserDefaults.standard.object(forKey: "presstowrite_learned_vocabulary") == nil)
         state.rememberCorrection(state.correctionSuggestions[0])
         precondition(state.learnedVocabulary == ["Lumora"] && state.correctionSuggestions.isEmpty)
-        precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] == ["Lumora"])
-        precondition(state.customVocabularyText == "Sample User, Metatron", "Learning must preserve manual vocabulary")
+        precondition(UserDefaults.standard.object(forKey: "presstowrite_learned_vocabulary") as? [String] == ["Lumora"])
+        precondition(state.customVocabularyText == "Sample User, Asteria", "Learning must preserve manual vocabulary")
 
         // Remembered corrections also reach the fast recognizer as real hints.
         state.speechMode = .fast
@@ -541,7 +542,7 @@ struct AppStateTests {
         try await waitUntil { state.engineStatus.phase == .ready }
         state.startRecording()
         precondition(engine.streams.last!.vocabulary.contains("Lumora"))
-        precondition(engine.streams.last!.vocabulary.contains("Metatron"))
+        precondition(engine.streams.last!.vocabulary.contains("Asteria"))
         state.cancelDictation(showFeedback: false)
         state.speechMode = .accuracy
         await state.refreshEngineStatus()
@@ -588,7 +589,7 @@ struct AppStateTests {
         precondition(!state.updateLearnedWord("LumoTech", to: "invalid,entry"))
         state.removeLearnedWord("LumoTech")
         precondition(state.learnedVocabulary.isEmpty && !TextCleaner.shared.customVocabulary.contains("LumoTech"))
-        precondition(UserDefaults.standard.object(forKey: "metatron_learned_vocabulary") as? [String] == [])
+        precondition(UserDefaults.standard.object(forKey: "presstowrite_learned_vocabulary") as? [String] == [])
         state.correctionLearningEnabled = false
         state.historyRetention = .clearOnQuit
         InsertionTarget.mockSnapshot = nil

@@ -15,7 +15,7 @@ public final class TextInserter {
 
     private func logDuration(_ stage: String, since started: TimeInterval) {
         let milliseconds = (ProcessInfo.processInfo.systemUptime - started) * 1_000
-        NSLog("[Metatron] Insertion timing %@=%.1fms", stage, milliseconds)
+        NSLog("[Press To Write] Insertion timing %@=%.1fms", stage, milliseconds)
     }
 
     private struct SavedPasteboardItem {
@@ -65,7 +65,7 @@ public final class TextInserter {
     ///
     /// - Parameters:
     ///   - text: The text to insert.
-    ///   - keepOnClipboard: If false (Whisperflow-style default), Metatron marks the pasteboard item
+    ///   - keepOnClipboard: If false (Whisperflow-style default), Press To Write marks the pasteboard item
     ///     as transient so clipboard history managers (Raycast, Alfred, Maccy, etc.) ignore it,
     ///     and restores the user's prior clipboard 180ms after Cmd+V is dispatched.
     ///     If true, the text remains on the system clipboard permanently.

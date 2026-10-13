@@ -1,6 +1,6 @@
 import Foundation
 
-// Compile with Sources/Metatron/Core/AudioInputDevice.swift. These fixtures
+// Compile with Sources/PressToWrite/Core/AudioInputDevice.swift. These fixtures
 // exercise selection only; no microphone permission or audio engine is needed.
 @main
 struct MicrophoneSelectionTests {

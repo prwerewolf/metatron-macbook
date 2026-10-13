@@ -4,10 +4,10 @@ import Foundation
 struct TestRunner {
     static func main() {
         let cleaner = TextCleaner.shared
-        cleaner.customVocabulary = ["Metatron", "Apple Silicon", "macOS"]
+        cleaner.customVocabulary = ["Lumora", "Apple Silicon", "macOS"]
 
         print("==================================================")
-        print("  Running Metatron TextCleaner Verification Tests")
+        print("  Running Press To Write TextCleaner Verification Tests")
         print("==================================================\n")
 
         // Test 1: Remove clear interjections without stripping meaningful phrases.
@@ -38,12 +38,12 @@ struct TestRunner {
         print("  ✓ PASSED\n")
 
         // Test 4: Custom Vocabulary
-        let input4 = "i am running metatron on apple silicon on macos period"
+        let input4 = "i am running lumora on apple silicon on macos period"
         let output4 = cleaner.clean(text: input4, style: .natural)
         print("Test 4 (Custom Vocabulary):")
         print("  Raw:      '\(input4)'")
         print("  Output:   '\(output4)'")
-        assert(output4 == "i am running Metatron on Apple Silicon on macOS period", "Test 4 Failed: custom vocabulary capitalization failed: \(output4)")
+        assert(output4 == "i am running Lumora on Apple Silicon on macOS period", "Test 4 Failed: custom vocabulary capitalization failed: \(output4)")
         print("  ✓ PASSED\n")
 
         // Test 5: Whisper Hallucination / Repetition Loop Deduplication
@@ -118,10 +118,10 @@ struct TestRunner {
 
         // Test 8: Raw is an exact pass-through, including whitespace and vocabulary casing.
         let rawInputs = [
-            " \tmetatron  um I I period\n\n",
+            " \tlumora  um I I period\n\n",
             "I, I said comma new line bullet one.",
             "Repeat this. Repeat this. Repeat this.",
-            "macos metatron apple silicon",
+            "macos lumora apple silicon",
             "\n \t\n",
             ""
         ]
@@ -153,9 +153,9 @@ struct TestRunner {
         assert(cleaner.clean(text: "macos is ready period", style: .professional) == "macOS is ready.", "Test 10 Failed: sentence casing overrode custom vocabulary")
         assert(cleaner.clean(text: technicalTerms, style: .raw) == technicalTerms, "Test 10 Failed: Raw applied custom vocabulary")
         let savedVocabulary = cleaner.customVocabulary
-        assert(cleaner.clean(text: "macos metatron", style: .natural, vocabulary: ["Metatron"]) == "macos Metatron", "Test 10 Failed: current global vocabulary overrode the per-request snapshot")
+        assert(cleaner.clean(text: "macos lumora", style: .natural, vocabulary: ["Lumora"]) == "macos Lumora", "Test 10 Failed: current global vocabulary overrode the per-request snapshot")
         assert(cleaner.customVocabulary == savedVocabulary, "Test 10 Failed: per-request vocabulary mutated shared settings")
-        assert(cleaner.clean(text: "macos metatron", style: .raw, vocabulary: ["Metatron"]) == "macos metatron", "Test 10 Failed: Raw applied per-request vocabulary")
+        assert(cleaner.clean(text: "macos lumora", style: .raw, vocabulary: ["Lumora"]) == "macos lumora", "Test 10 Failed: Raw applied per-request vocabulary")
         print("Test 10 (Literal Custom Vocabulary): ✓ PASSED\n")
 
         // Test 11: Professional only recognizes spoken commands in explicit contexts.
@@ -316,7 +316,7 @@ struct TestRunner {
         print("Test 20 (Chat Casual Punctuation): ✓ PASSED\n")
 
         print("==================================================")
-        print("  All Metatron TextCleaner Tests PASSED! (20/20)")
+        print("  All Press To Write TextCleaner Tests PASSED! (20/20)")
         print("==================================================")
     }
 }

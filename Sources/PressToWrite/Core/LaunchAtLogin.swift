@@ -22,7 +22,7 @@ public enum LaunchAtLogin {
                         }
                     }
                 } catch {
-                    NSLog("[Metatron] Failed to update Launch at Login: \(error)")
+                    NSLog("[Press To Write] Failed to update Launch at Login: \(error)")
                 }
             }
         }

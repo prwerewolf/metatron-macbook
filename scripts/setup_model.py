@@ -27,7 +27,7 @@ def cache_root(environment):
 
 
 def existing_model(environment):
-    explicit = environment.get("PRESSTOWRITE_MODEL_DIR") or environment.get("METATRON_MODEL_DIR")
+    explicit = environment.get("PRESSTOWRITE_MODEL_DIR")
     if explicit:
         folder = Path(explicit).expanduser().resolve()
         if not complete_model(folder):

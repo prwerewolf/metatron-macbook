@@ -70,9 +70,9 @@ public final class RescueAudioController: @unchecked Sendable {
             if let data = try? JSONEncoder().encode(meta) {
                 try? data.write(to: metadataURL)
             }
-            NSLog("[Metatron Rescue] Saved rescue audio (%.2fs) to %@", duration, rescueWavURL.path)
+            NSLog("[Press To Write Rescue] Saved rescue audio (%.2fs) to %@", duration, rescueWavURL.path)
         } catch {
-            NSLog("[Metatron Rescue] Failed to save rescue audio: %@", error.localizedDescription)
+            NSLog("[Press To Write Rescue] Failed to save rescue audio: %@", error.localizedDescription)
         }
     }
 
